@@ -1,0 +1,2 @@
+[console_scripts]
+smart-pdf-parser = src.ui.cli:main

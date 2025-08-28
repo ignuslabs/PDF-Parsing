@@ -1,0 +1,36 @@
+Metadata-Version: 2.4
+Name: smart-pdf-parser
+Version: 0.1.0
+Summary: Smart PDF Parser with Docling integration for document analysis and interactive verification
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: docling>=1.0.0
+Requires-Dist: streamlit>=1.28.0
+Requires-Dist: python-dotenv>=1.0.0
+Requires-Dist: pandas>=2.0.0
+Requires-Dist: numpy>=1.24.0
+Requires-Dist: fuzzywuzzy>=0.18.0
+Requires-Dist: python-levenshtein>=0.21.0
+Requires-Dist: pillow>=10.0.0
+Requires-Dist: opencv-python>=4.8.0
+Requires-Dist: tqdm>=4.66.0
+Requires-Dist: click>=8.1.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.4.0; extra == "dev"
+Requires-Dist: pytest-cov>=4.1.0; extra == "dev"
+Requires-Dist: pytest-mock>=3.11.0; extra == "dev"
+Requires-Dist: black>=23.7.0; extra == "dev"
+Requires-Dist: flake8>=6.0.0; extra == "dev"
+Requires-Dist: mypy>=1.5.0; extra == "dev"
+Requires-Dist: memory-profiler>=0.61.0; extra == "dev"
+Requires-Dist: psutil>=5.9.0; extra == "dev"
+Requires-Dist: ipython>=8.12.0; extra == "dev"
+Requires-Dist: jupyter>=1.0.0; extra == "dev"
+Requires-Dist: hypothesis>=6.82.0; extra == "dev"
