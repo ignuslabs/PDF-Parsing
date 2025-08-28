@@ -1,0 +1,4 @@
+# file: /Users/joecorella/Desktop/PDF Parsing/src/core/models.py
+# hypothesis_version: 6.138.7
+
+[0.0, 1.0, '"', '### Table', '&', '&#39;', '&amp;', '&gt;', '&lt;', '&quot;', "'", '<', '<!DOCTYPE html>', '</body>', '</div>', '</head>', '</html>', '</style>', '<body>', "<div class='header'>", '<h4>Table</h4>', '<head>', "<html lang='en'>", '<style>', '>', 'Document', '\\n', '```', 'bbox', 'code', 'confidence', 'correct', 'dict', 'element_type', 'elements', 'exact', 'export_info', 'exported_at', 'filename', 'format', 'formula', 'fuzzy', 'heading', 'incorrect', 'list', 'metadata', 'page_count', 'page_number', 'pages', 'parsed_at', 'partial', 'pending', 'semantic', 'source_path', 'table', 'text', 'total_elements', 'x0', 'x1', 'y0', 'y1']

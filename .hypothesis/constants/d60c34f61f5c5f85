@@ -1,0 +1,4 @@
+# file: /Users/joecorella/Desktop/PDF Parsing/src/verification/renderer.py
+# hypothesis_version: 6.138.7
+
+[1.0, 128, 200, 255, ' | ', 'RGB', 'RGBA', 'arial.ttf', 'textbbox', 'x0', 'x1', 'y0', 'y1']

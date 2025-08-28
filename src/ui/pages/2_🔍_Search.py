@@ -21,8 +21,8 @@ import re
 
 # Project imports (now that path is set)
 try:
-    from core.models import DocumentElement, ParsedDocument
-    from core.search import SmartSearchEngine, SearchResult
+    from src.core.models import DocumentElement, ParsedDocument
+    from src.core.search import SmartSearchEngine, SearchResult
 except ImportError as e:
     st.error(f"Failed to import required modules: {e}")
     st.error("Please ensure the application is running from the correct directory")

@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Tuple, Optional, Union
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from core.models import DocumentElement
+from src.core.models import DocumentElement
 
 
 @dataclass

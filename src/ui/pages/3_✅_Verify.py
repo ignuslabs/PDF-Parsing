@@ -23,9 +23,9 @@ from PIL import Image
 import numpy as np
 
 try:
-    from core.models import DocumentElement, ParsedDocument
-    from verification.interface import VerificationInterface, VerificationState
-    from verification.renderer import PDFRenderer, RenderConfig
+    from src.core.models import DocumentElement, ParsedDocument
+    from src.verification.interface import VerificationInterface, VerificationState
+    from src.verification.renderer import PDFRenderer, RenderConfig
 except ImportError as e:
     st.error(f"Failed to import required modules: {e}")
     st.error("Please ensure the application is running from the correct directory")

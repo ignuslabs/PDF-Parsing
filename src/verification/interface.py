@@ -10,8 +10,8 @@ from typing import List, Dict, Any, Optional, Union, Tuple
 from dataclasses import dataclass, asdict
 from io import StringIO
 
-from core.models import DocumentElement
-from verification.renderer import PDFRenderer
+from src.core.models import DocumentElement
+from src.verification.renderer import PDFRenderer
 
 
 @dataclass

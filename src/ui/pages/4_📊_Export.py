@@ -25,8 +25,8 @@ import zipfile
 import pandas as pd
 
 try:
-    from core.models import DocumentElement, ParsedDocument
-    from verification.interface import VerificationInterface
+    from src.core.models import DocumentElement, ParsedDocument
+    from src.verification.interface import VerificationInterface
 except ImportError as e:
     st.error(f"Failed to import required modules: {e}")
     st.error("Please ensure the application is running from the correct directory")

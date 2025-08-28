@@ -1,0 +1,4 @@
+# file: /Users/joecorella/Desktop/PDF Parsing/src/verification/interface.py
+# hypothesis_version: 6.138.7
+
+[0.0, 0.9, 100.0, 'accuracy', 'action', 'bbox', 'bbox_x0', 'bbox_x1', 'bbox_y0', 'bbox_y1', 'by_page', 'by_type', 'confidence', 'correct', 'correction', 'corrections_only', 'csv', 'element_id', 'element_type', 'elements', 'elements_remaining', 'elements_verified', 'export_timestamp', 'incorrect', 'initialized', 'json', 'loaded_from_export', 'marked_correct', 'marked_incorrect', 'marked_partial', 'metadata', 'notes', 'page_number', 'partial', 'pending', 'percent_complete', 'previous_status', 'status', 'summary', 'system', 'text', 'timestamp', 'total', 'total_elements', 'undone', 'user', 'verification_state', 'verified_by', 'x0', 'x1', 'y0', 'y1']
