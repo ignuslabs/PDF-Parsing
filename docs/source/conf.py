@@ -6,7 +6,7 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'Smart PDF Parser'
+project = 'PDF-Parser'
 copyright = '2025, masodori'
 author = 'masodori'
 release = '0.1'
@@ -17,7 +17,7 @@ release = '0.1'
 extensions = []
 
 templates_path = ['_templates']
-exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
+exclude_patterns = []
 
 
 
