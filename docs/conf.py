@@ -9,7 +9,7 @@
 project = 'PDF-Parser'
 copyright = '2025, masodori'
 author = 'masodori'
-release = '0.1'
+release = '2'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -17,7 +17,7 @@ release = '0.1'
 extensions = []
 
 templates_path = ['_templates']
-exclude_patterns = []
+exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 
 
 
