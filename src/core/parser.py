@@ -6,7 +6,7 @@ import os
 import logging
 import re
 from pathlib import Path
-from typing import List, Optional, Any, Dict, Union
+from typing import List, Optional, Any, Dict, Union, Tuple
 from dataclasses import dataclass
 from datetime import datetime
 from docling.document_converter import DocumentConverter, PdfFormatOption
@@ -19,8 +19,10 @@ from docling.datamodel.pipeline_options import (
     )
 from docling.datamodel.base_models import InputFormat
 
-from src.core.models import DocumentElement, ParsedDocument
+from src.core.models import DocumentElement, ParsedDocument, KeyValuePair
 from src.utils.exceptions import DocumentParsingError, OCRError
+from src.core.classifiers.header_classifier import is_heading
+from src.core.kv_extraction import KeyValueExtractor, KVConfig
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -38,8 +40,10 @@ class DoclingParser:
         ocr_engine: str = "tesseract",
         ocr_lang: Union[str, List[str]] = "eng",
         table_mode: TableFormerMode = TableFormerMode.ACCURATE,
-        image_scale: float = 1.0
-
+        image_scale: float = 1.0,
+        enable_kv_extraction: bool = False,
+        kv_config: Optional[KVConfig] = None,
+        header_classifier_enabled: bool = False
     ):
         """Initialize the Docling parser with configuration options.
         
@@ -52,9 +56,9 @@ class DoclingParser:
             ocr_lang: OCR language(s) - string or list of language codes
             table_mode: Table extraction mode ('accurate' or 'fast')
             image_scale: Scale factor for generated images
-
-
-            ADDD TableStructureOptions 
+            enable_kv_extraction: Enable key-value pair extraction
+            kv_config: Configuration for KV extraction (uses defaults if None)
+            header_classifier_enabled: Enable header/heading classification
         """
         self.enable_ocr = enable_ocr
         self.enable_tables = enable_tables
@@ -64,10 +68,16 @@ class DoclingParser:
         self.ocr_lang = ocr_lang
         self.table_mode = table_mode
         self.image_scale = image_scale
+        self.enable_kv_extraction = enable_kv_extraction
+        self.kv_config = kv_config
+        self.header_classifier_enabled = header_classifier_enabled
         
         # Initialize converter (will be created lazily)
         self._converter = None
         self.page_images = {}
+        
+        # Initialize KV extractor (will be created lazily)
+        self._kv_extractor = None
         
         # if not DOCLING_AVAILABLE:
         #     raise ImportError(
@@ -84,6 +94,15 @@ class DoclingParser:
         if self._converter is None:
             self._converter = self._create_converter()
         return self._converter
+    
+    @property
+    def kv_extractor(self) -> Optional[KeyValueExtractor]:
+        """Lazy initialization of the key-value extractor."""
+        if not self.enable_kv_extraction:
+            return None
+        if self._kv_extractor is None:
+            self._kv_extractor = KeyValueExtractor(self.kv_config)
+        return self._kv_extractor
     
     def _validate_config(self):
         """Validate parser configuration."""
@@ -318,7 +337,9 @@ class DoclingParser:
                         'tables_enabled': self.enable_tables,
                         'images_enabled': self.generate_page_images,
                         'ocr_engine': self.ocr_engine if self.enable_ocr else None,
-                        'table_mode': self.table_mode if self.enable_tables else None
+                        'table_mode': self.table_mode if self.enable_tables else None,
+                        'kv_extraction_enabled': self.enable_kv_extraction,
+                        'header_classifier_enabled': self.header_classifier_enabled
                     },
                     'total_elements': len(elements),
                     'page_count': len(set(e.page_number for e in elements)) if elements else 0
@@ -347,7 +368,9 @@ class DoclingParser:
                         'parser_config': {
                             'ocr_enabled': False,
                             'tables_enabled': self.enable_tables,
-                            'images_enabled': self.generate_page_images
+                            'images_enabled': self.generate_page_images,
+                            'kv_extraction_enabled': self.enable_kv_extraction,
+                            'header_classifier_enabled': self.header_classifier_enabled
                         },
                         'total_elements': len(elements),
                         'page_count': len(set(e.page_number for e in elements)) if elements else 0
@@ -371,7 +394,9 @@ class DoclingParser:
                     'parser_config': {
                         'ocr_enabled': self.enable_ocr,
                         'tables_enabled': False,  # Disabled for memory
-                        'images_enabled': False   # Disabled for memory
+                        'images_enabled': False,  # Disabled for memory
+                        'kv_extraction_enabled': self.enable_kv_extraction,
+                        'header_classifier_enabled': self.header_classifier_enabled
                     },
                     'total_elements': len(elements),
                     'page_count': len(set(e.page_number for e in elements)) if elements else 0
@@ -499,7 +524,57 @@ class DoclingParser:
         # Sort elements by page number and position
         elements.sort(key=lambda x: (x.page_number, x.bbox['y0'], x.bbox['x0']))
         
+        # Post-process with header classifier if enabled
+        if self.header_classifier_enabled and elements:
+            elements = self._refine_heading_classification(elements)
+        
         return elements
+    
+    def _refine_heading_classification(self, elements: List[DocumentElement]) -> List[DocumentElement]:
+        """Refine heading classification using the header classifier.
+        
+        Args:
+            elements: List of all elements from the document
+            
+        Returns:
+            List of elements with refined heading classification
+        """
+        # Group elements by page for context building
+        page_groups = {}
+        for element in elements:
+            page_num = element.page_number
+            if page_num not in page_groups:
+                page_groups[page_num] = []
+            page_groups[page_num].append(element)
+        
+        # Process each page independently
+        refined_elements = []
+        for page_num, page_elements in page_groups.items():
+            # Build page context
+            page_context = self._build_page_context(elements, page_num)
+            
+            # Refine classification for text elements
+            for element in page_elements:
+                if element.element_type == 'text':  # Only refine text elements
+                    # Check if header classifier suggests this should be a heading
+                    if classify_as_heading(element, page_context):
+                        # Create new element with updated type
+                        updated_element = DocumentElement(
+                            text=element.text,
+                            element_type='heading',
+                            page_number=element.page_number,
+                            bbox=element.bbox,
+                            confidence=element.confidence,
+                            metadata={**element.metadata, 'header_classifier_applied': True}
+                        )
+                        refined_elements.append(updated_element)
+                    else:
+                        refined_elements.append(element)
+                else:
+                    # Keep non-text elements as-is
+                    refined_elements.append(element)
+        
+        return refined_elements
     
     def _create_element_from_text(self, text_item, element_id: int, document) -> Optional[DocumentElement]:
         """Create DocumentElement from Docling text item."""
@@ -509,26 +584,28 @@ class DoclingParser:
             if not text_content or not text_content.strip():
                 return None
             
-            # Determine element type (simplified heuristic)
-            element_type = self._determine_text_element_type(text_content)
-            
-            # Get bounding box
+            # Create preliminary element for type determination
             bbox = self._extract_bbox(text_item)
-            
-            # Get page number
             page_number = self._extract_page_number(text_item)
-            
-            # Get confidence (default to high for text)
             confidence = getattr(text_item, 'confidence', 0.9)
             
-            return DocumentElement(
+            # Create preliminary element
+            preliminary_element = DocumentElement(
                 text=text_content.strip(),
-                element_type=element_type,
+                element_type='text',  # Temporary type
                 page_number=page_number,
                 bbox=bbox,
                 confidence=confidence,
                 metadata={'element_id': element_id, 'source': 'docling_text'}
             )
+            
+            # Determine element type (will be refined later if header classifier is enabled)
+            element_type = self._determine_text_element_type(text_content, preliminary_element)
+            
+            # Update element type in preliminary element
+            preliminary_element.element_type = element_type
+            
+            return preliminary_element
             
         except Exception as e:
             # Skip problematic elements rather than failing entire parsing
@@ -597,8 +674,45 @@ class DoclingParser:
             print(f"Warning: Failed to process picture element {element_id}: {e}")
             return None
     
-    def _determine_text_element_type(self, text: str) -> str:
-        """Determine element type based on text characteristics."""
+    def _build_page_context(self, elements: List[DocumentElement], page_num: int) -> Dict[str, Any]:
+        """Build page context for header classifier.
+        
+        Args:
+            elements: All elements on the page
+            page_num: Page number
+            
+        Returns:
+            Dictionary with page statistics and dimensions
+        """
+        if not elements:
+            return {
+                'page_width': 612.0,  # Default PDF page width
+                'page_height': 792.0,  # Default PDF page height
+                'top_15_percent_y': 792.0 * 0.85,  # Top 15% boundary
+                'element_count': 0
+            }
+        
+        # Calculate page dimensions from element bounding boxes
+        page_elements = [e for e in elements if e.page_number == page_num]
+        
+        if page_elements:
+            max_x = max(e.bbox['x1'] for e in page_elements)
+            max_y = max(e.bbox['y1'] for e in page_elements)
+            page_width = max(max_x, 612.0)  # Use at least standard width
+            page_height = max(max_y, 792.0)  # Use at least standard height
+        else:
+            page_width = 612.0
+            page_height = 792.0
+        
+        return {
+            'page_width': page_width,
+            'page_height': page_height,
+            'top_15_percent_y': page_height * 0.85,  # Top 15% boundary
+            'element_count': len(page_elements)
+        }
+    
+    def _determine_text_element_type(self, text: str, element: Optional[DocumentElement] = None, page_context: Optional[Dict[str, Any]] = None) -> str:
+        """Determine element type based on text characteristics and optional classification."""
         text_stripped = text.strip()
         
         # Short text in all caps might be a heading
@@ -629,6 +743,14 @@ class DoclingParser:
         # Caption detection (often starts with "Figure" or "Table")
         if re.match(r'^(Figure|Table|Image|Chart)\s+\d+', text_stripped, re.IGNORECASE):
             return 'caption'
+        
+        # Use header classifier if enabled and we have the necessary context
+        if (self.header_classifier_enabled and 
+            element is not None and 
+            page_context is not None):
+            # Check if header classifier suggests this is a heading
+            if classify_as_heading(element, page_context):
+                return 'heading'
         
         # Default to text
         return 'text'
@@ -875,6 +997,38 @@ class DoclingParser:
         except Exception:
             return 'unknown'
     
+    def parse_document_with_kvs(self, pdf_path: Path) -> Tuple[List[DocumentElement], List[KeyValuePair]]:
+        """Parse a PDF document and extract key-value pairs if enabled.
+        
+        Args:
+            pdf_path: Path to the PDF file
+            
+        Returns:
+            Tuple of (document_elements, key_value_pairs)
+            
+        Raises:
+            FileNotFoundError: If the PDF file doesn't exist
+            ValueError: If the file is not a valid PDF
+            DocumentParsingError: If parsing fails
+        """
+        # Parse document elements first
+        elements = self.parse_document(pdf_path)
+        
+        # Extract key-value pairs if enabled
+        if self.enable_kv_extraction and self.kv_extractor and elements:
+            try:
+                logger.info(f"Extracting key-value pairs from {pdf_path}")
+                kv_pairs = self.kv_extractor.extract(elements)
+                logger.info(f"Extracted {len(kv_pairs)} key-value pairs from {pdf_path}")
+                return elements, kv_pairs
+            except Exception as e:
+                logger.warning(f"KV extraction failed for {pdf_path}: {e}")
+                # Return elements with empty KV pairs on extraction failure
+                return elements, []
+        else:
+            # Return elements with empty KV pairs if extraction is disabled
+            return elements, []
+    
     def parse_multiple_documents(self, pdf_paths: List[Path]) -> Dict[Path, List[DocumentElement]]:
         """Efficiently process multiple documents.
         
@@ -979,5 +1133,24 @@ class DoclingParser:
             'tables_enabled': self.enable_tables,
             'ocr_engine': self.ocr_engine if self.enable_ocr else None,
             'table_mode': self.table_mode if self.enable_tables else None,
-            'image_scale': self.image_scale if self.generate_page_images else None
+            'image_scale': self.image_scale if self.generate_page_images else None,
+            'kv_extraction_enabled': self.enable_kv_extraction,
+            'header_classifier_enabled': self.header_classifier_enabled
         }
+
+
+def classify_as_heading(element: DocumentElement, page_context: dict) -> bool:
+    """
+    Classify a DocumentElement as a heading or regular text.
+    
+    This is a wrapper function around the header classifier module that
+    provides the interface expected by the parser and tests.
+    
+    Args:
+        element: DocumentElement to classify
+        page_context: Dictionary with page statistics and dimensions
+        
+    Returns:
+        bool: True if element should be classified as heading, False otherwise
+    """
+    return is_heading(element, page_context)

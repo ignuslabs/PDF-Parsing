@@ -1,52 +1,76 @@
-# Smart PDF Parser
+Smart PDF Parser
+================
 
-An intelligent PDF document processing system built on IBM's Docling library, providing advanced parsing, search, verification, and export capabilities.
+Extract, search, verify, and export structured content from PDFs using Docling â€” with OCR, table structure, readingâ€‘order awareness, and a streamlined Streamlit UI for quick workflows.
 
-## =€ Quick Start
+[![Docs (local)](https://img.shields.io/badge/docs-local-blue)](docs/index.md)
+[![Documentation Status](https://pdf-parsing.readthedocs.io/en/latest/index.html)](https://pdf-parser.readthedocs.io/en/latest/?badge=latest)
 
-**New to Smart PDF Parser?** ’ Start with the **[Getting Started Tutorial](docs/getting-started.md)**
+Highlights
+----------
 
-**Need to install?** ’ Follow the **[Installation Tutorial](docs/installation-tutorial.md)**
+- Intelligent parsing via Docling (OCR, tables, images, formulas)
+- Precise bounding boxes and page numbers for every element
+- Fast search (exact, fuzzy), verification overlay, and rich export
+- Test-driven design and fixtures for reliable iteration
 
-## =Ö Documentation
+Quick Start
+-----------
 
-Complete documentation is available in the `docs/` directory:
+- Install dependencies: `pip install -r requirements.txt`
+- Run the app: `python run_app.py`
+- Try a sample: open `tests/fixtures/text_simple.pdf` in the UI
+â—Š
+More details in the docs: `docs/index.md`.
 
-- **[Getting Started Tutorial](docs/getting-started.md)** - First-time user experience
-- **[Installation Tutorial](docs/installation-tutorial.md)** - Complete setup guide  
-- **[Usage How-To Guides](docs/usage-howto-guides.md)** - Process different document types
-- **[System Architecture](docs/system-architecture.md)** - Technical documentation
+Documentation
+-------------
 
-## =' For Developers
+- Main docs: docs/index.md
+- Design plan (KV extraction & header classification): docs/design/kv_extraction_implementation_plan.md
 
-- **[Development How-To Guides](docs/development-howto-guides.md)** - Contributing and extending
-- **[CLAUDE.md](CLAUDE.md)** - Development commands and testing
+If you host on Read the Docs, update the badge/link above to your project slug, for example:
 
-## =¡ Core Features
+- Badge: `https://readthedocs.org/projects/<your-slug>/badge/?version=latest`
+- Docs: `https://<your-slug>.readthedocs.io/en/latest/`
 
-- >à **Intelligent Document Processing** - IBM Docling integration
-- = **Multi-Modal Search** - Exact, fuzzy, and semantic search
--  **Interactive Verification** - Visual accuracy checking
-- =Ê **Flexible Export** - JSON, CSV, Markdown, HTML formats
+Features
+--------
 
-## <× Architecture
+- Docling-powered parsing with optional OCR
+- Table structure recognition (configurable accuracy vs. speed)
+- Normalized bounding boxes for robust overlays and exports
+- Streamlit UI: Parse, Search, Verify, Export
+- JSON/CSV/Markdown/HTML exports
 
-Smart PDF Parser consists of four main components:
+Development
+-----------
 
-1. **Parser Layer** - Docling-powered PDF processing with OCR
-2. **Search Engine** - Multi-modal search with intelligent ranking  
-3. **Verification System** - Interactive accuracy checking
-4. **Export System** - Multiple format support with metadata
+- Run tests (unit/integration, excluding OCR/perf):
+  - `pytest -v -m "not slow and not ocr and not performance"`
+- Generate fixtures (PDF samples):
+  - `python generate_test_fixtures.py`
+- Optional OCR/performance suites:
+  - `pytest -v -m ocr`
+  - `pytest -v -m performance`
 
-## <¯ Use Cases
+Key files:
 
-- **Research Papers** - Extract and search academic content
-- **Business Documents** - Process reports and presentations
-- **Legal Documents** - Analyze contracts and legal text
-- **Scanned Documents** - OCR processing for digitized content
+- Parser: `src/core/parser.py`
+- Data models: `src/core/models.py`
+- Verification renderer: `src/verification/renderer.py`
+- UI pages: `src/ui/pages/`
 
-## =¦ Status
+Tech Stack
+----------
 
-**Production Ready** - All major systems operational with 95%+ test coverage
+- Docling (document conversion, OCR/table/reading order)
+- Streamlit (interactive UI)
+- Pillow/OpenCV (images), pandas/numpy (data), pytest (tests)
 
-See the [complete documentation](docs/index.md) for detailed information.
+Notes
+-----
+
+- Read the Docs: ensure `docs/` builds with your theme; see `.readthedocs.yaml` and `docs/conf.py`.
+- If your Read the Docs project slug differs from `pdf-parser`, update the badge and link above.
+

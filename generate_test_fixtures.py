@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 """
 Generate test fixture PDFs for the Smart PDF Parser project.
-Creates 7 different PDF files targeting specific parsing behaviors.
+Creates 8 different PDF files targeting specific parsing behaviors.
 """
 
 import os
-from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib import colors
 from reportlab.pdfgen import canvas
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
-import math
+from reportlab.lib.enums import TA_CENTER
 
 
 def create_text_simple_pdf(filepath):
@@ -399,6 +398,167 @@ def create_large_pages_pdf(filepath):
     doc.build(story)
 
 
+def create_forms_basic_pdf(filepath):
+    """Create a government-form style PDF with realistic label-value pairs for KV extraction testing."""
+    c = canvas.Canvas(filepath, pagesize=letter)
+    width, height = letter
+    
+    # Form header
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(200, height - 60, "APPLICATION FORM")
+    
+    # Set up positioning
+    left_margin = 50
+    column_width = (width - 120) / 2  # 120px gutter between columns
+    left_col_x = left_margin
+    right_col_x = left_margin + column_width + 120
+    
+    current_y = height - 120
+    line_height = 20
+    
+    # Create form fields with various label-value patterns
+    c.setFont("Helvetica", 12)
+    
+    # Row 1: Two-column layout with right-of-label placement
+    c.drawString(left_col_x, current_y, "Name:")
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(left_col_x + 50, current_y, "John A. Smith")
+    
+    c.setFont("Helvetica", 12)
+    c.drawString(right_col_x, current_y, "Social Security Number:")
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(right_col_x + 150, current_y, "123-45-6789")
+    
+    current_y -= line_height * 1.5
+    
+    # Row 2: Date and phone
+    c.setFont("Helvetica", 12)
+    c.drawString(left_col_x, current_y, "Date of Birth:")
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(left_col_x + 90, current_y, "01/23/1980")
+    
+    c.setFont("Helvetica", 12)
+    c.drawString(right_col_x, current_y, "Phone Number:")
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(right_col_x + 95, current_y, "(555) 123-4567")
+    
+    current_y -= line_height * 2
+    
+    # Address section - below-label placement (multi-line value)
+    c.setFont("Helvetica", 12)
+    c.drawString(left_col_x, current_y, "Address:")
+    current_y -= line_height
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(left_col_x + 20, current_y, "123 Main Street")
+    current_y -= line_height
+    c.drawString(left_col_x + 20, current_y, "Apt 4B")
+    current_y -= line_height
+    c.drawString(left_col_x + 20, current_y, "Springfield, IL 62701")
+    
+    current_y -= line_height * 2
+    
+    # Row 3: Emergency contact information
+    c.setFont("Helvetica", 12)
+    c.drawString(left_col_x, current_y, "Emergency Contact:")
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(left_col_x + 130, current_y, "Jane Smith")
+    
+    c.setFont("Helvetica", 12)
+    c.drawString(right_col_x, current_y, "Relationship:")
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(right_col_x + 85, current_y, "Spouse")
+    
+    current_y -= line_height * 2
+    
+    # Additional fields to test various patterns
+    c.setFont("Helvetica", 12)
+    c.drawString(left_col_x, current_y, "Email Address:")
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(left_col_x + 100, current_y, "john.smith@email.com")
+    
+    c.setFont("Helvetica", 12)
+    c.drawString(right_col_x, current_y, "Zip Code:")
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(right_col_x + 70, current_y, "62701")
+    
+    current_y -= line_height * 1.5
+    
+    # Employment section
+    c.setFont("Helvetica", 12)
+    c.drawString(left_col_x, current_y, "Employer:")
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(left_col_x + 70, current_y, "ABC Corporation")
+    
+    c.setFont("Helvetica", 12)
+    c.drawString(right_col_x, current_y, "Job Title:")
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(right_col_x + 70, current_y, "Software Engineer")
+    
+    current_y -= line_height * 1.5
+    
+    # Annual income with currency format
+    c.setFont("Helvetica", 12)
+    c.drawString(left_col_x, current_y, "Annual Income:")
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(left_col_x + 100, current_y, "$75,000")
+    
+    c.setFont("Helvetica", 12)
+    c.drawString(right_col_x, current_y, "Years of Employment:")
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(right_col_x + 130, current_y, "5")
+    
+    current_y -= line_height * 2
+    
+    # References section with below-label placement
+    c.setFont("Helvetica", 12)
+    c.drawString(left_col_x, current_y, "Professional Reference:")
+    current_y -= line_height
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(left_col_x + 20, current_y, "Dr. Sarah Johnson")
+    current_y -= line_height
+    c.drawString(left_col_x + 20, current_y, "Manager, ABC Corporation")
+    current_y -= line_height
+    c.drawString(left_col_x + 20, current_y, "(555) 987-6543")
+    
+    current_y -= line_height * 2
+    
+    # Checkboxes and yes/no fields
+    c.setFont("Helvetica", 12)
+    c.drawString(left_col_x, current_y, "U.S. Citizen:")
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(left_col_x + 80, current_y, "Yes")
+    
+    c.setFont("Helvetica", 12)
+    c.drawString(right_col_x, current_y, "Security Clearance:")
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(right_col_x + 120, current_y, "No")
+    
+    current_y -= line_height * 2
+    
+    # Signature and date section
+    c.setFont("Helvetica", 12)
+    c.drawString(left_col_x, current_y, "Signature Date:")
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(left_col_x + 100, current_y, "08/29/2025")
+    
+    # Draw some form lines to simulate a real form
+    c.setStrokeColor(colors.lightgrey)
+    c.setLineWidth(0.5)
+    
+    # Draw underlines for some fields to simulate form fields
+    form_lines = [
+        (left_col_x + 50, height - 120, left_col_x + 200, height - 120),  # Name line
+        (right_col_x + 150, height - 120, right_col_x + 280, height - 120),  # SSN line
+        (left_col_x + 90, height - 150, left_col_x + 200, height - 150),  # DOB line
+        (right_col_x + 95, height - 150, right_col_x + 220, height - 150),  # Phone line
+    ]
+    
+    for x1, y1, x2, _ in form_lines:
+        c.line(x1, y1 - 2, x2, y1 - 2)
+    
+    c.save()
+
+
 def main():
     """Generate all test fixture PDFs."""
     fixtures_dir = "tests/fixtures"
@@ -414,7 +574,8 @@ def main():
         ("multicolumn_rotated.pdf", create_multicolumn_pdf),
         ("images_captions.pdf", create_images_captions_pdf),
         ("formulas_snippets.pdf", create_formulas_pdf),
-        ("large_pages_light.pdf", create_large_pages_pdf)
+        ("large_pages_light.pdf", create_large_pages_pdf),
+        ("forms_basic.pdf", create_forms_basic_pdf)
     ]
     
     print("Generating test fixture PDFs...")

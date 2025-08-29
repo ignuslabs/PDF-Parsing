@@ -2,7 +2,7 @@
 Data models for the Smart PDF Parser.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 import json
@@ -31,6 +31,109 @@ class DocumentElement:
         if not required_bbox_keys.issubset(self.bbox.keys()):
             missing = required_bbox_keys - set(self.bbox.keys())
             raise ValueError(f"Missing required bbox keys: {missing}")
+
+
+@dataclass
+class KeyValuePair:
+    """Represents a key-value pair extracted from a PDF document.
+    
+    This class represents structured data extraction results where a label
+    (key) has been associated with a corresponding value, typically found
+    in forms, invoices, contracts, and other structured documents.
+    
+    Attributes:
+        label_text: The label/key text (e.g., "Name:", "Invoice Number", "Date")
+        value_text: The associated value text (e.g., "John A. Smith", "INV-2024-001")
+        page_number: Page number where the pair was found (1-based)
+        label_bbox: Label bounding box with keys 'x0', 'y0', 'x1', 'y1'
+        value_bbox: Value bounding box with keys 'x0', 'y0', 'x1', 'y1'
+        confidence: Overall confidence score for the key-value association [0.0, 1.0]
+        metadata: Additional information about the extraction process
+        
+    Example metadata structure:
+        {
+            'label_score': 0.85,      # Confidence that the label was correctly identified
+            'geom_score': 0.73,       # Spatial/geometric association confidence  
+            'content_score': 0.92,    # Content/semantic association confidence
+            'strategy': 'same_line',  # Extraction strategy used ('same_line', 'below', 'right', etc.)
+            'distance': 15.2,         # Physical distance between label and value
+            'alignment': 'horizontal' # Spatial alignment ('horizontal', 'vertical', 'diagonal')
+        }
+        
+    Example usage:
+        kv_pair = KeyValuePair(
+            label_text="Customer Name:",
+            value_text="John A. Smith",
+            page_number=1,
+            label_bbox={'x0': 50.0, 'y0': 100.0, 'x1': 150.0, 'y1': 120.0},
+            value_bbox={'x0': 160.0, 'y0': 100.0, 'x1': 260.0, 'y1': 120.0},
+            confidence=0.89,
+            metadata={'strategy': 'same_line', 'label_score': 0.92, 'geom_score': 0.85}
+        )
+    """
+    
+    label_text: str
+    value_text: str 
+    page_number: int
+    label_bbox: Dict[str, float]
+    value_bbox: Dict[str, float]
+    confidence: float
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    def __post_init__(self):
+        """Validate the key-value pair after initialization."""
+        # Validate confidence score
+        if not 0.0 <= self.confidence <= 1.0:
+            raise ValueError(f"Confidence must be between 0 and 1, got {self.confidence}")
+        
+        # Validate page number
+        if self.page_number < 1:
+            raise ValueError(f"Page number must be >= 1, got {self.page_number}")
+        
+        # Validate text fields are non-empty strings
+        if not isinstance(self.label_text, str) or not self.label_text.strip():
+            raise ValueError("label_text must be a non-empty string")
+        
+        if not isinstance(self.value_text, str) or not self.value_text.strip():
+            raise ValueError("value_text must be a non-empty string")
+        
+        # Validate bounding boxes
+        self._validate_bbox(self.label_bbox, "label_bbox")
+        self._validate_bbox(self.value_bbox, "value_bbox")
+        
+        # Validate metadata is a dictionary
+        if not isinstance(self.metadata, dict):
+            raise ValueError("metadata must be a dictionary")
+    
+    def _validate_bbox(self, bbox: Dict[str, float], bbox_name: str):
+        """Validate a bounding box dictionary.
+        
+        Args:
+            bbox: The bounding box to validate
+            bbox_name: Name of the bbox for error messages
+        """
+        if not isinstance(bbox, dict):
+            raise ValueError(f"{bbox_name} must be a dictionary, got {type(bbox)}")
+        
+        required_keys = {'x0', 'y0', 'x1', 'y1'}
+        if not required_keys.issubset(bbox.keys()):
+            missing = required_keys - set(bbox.keys())
+            raise ValueError(f"Missing required {bbox_name} keys: {missing}")
+        
+        # Validate coordinate types and values
+        for key in required_keys:
+            value = bbox[key]
+            if not isinstance(value, (int, float)):
+                raise ValueError(f"{bbox_name}['{key}'] must be a number, got {type(value)}")
+            if value < 0:
+                raise ValueError(f"{bbox_name}['{key}'] must be >= 0, got {value}")
+        
+        # Validate coordinate relationships
+        if bbox['x0'] >= bbox['x1']:
+            raise ValueError(f"{bbox_name}: x0 ({bbox['x0']}) must be less than x1 ({bbox['x1']})")
+        
+        if bbox['y0'] >= bbox['y1']:
+            raise ValueError(f"{bbox_name}: y0 ({bbox['y0']}) must be less than y1 ({bbox['y1']})")
 
 
 @dataclass
