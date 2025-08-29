@@ -86,7 +86,7 @@ mypy src/ --ignore-missing-imports --strict-optional
 
 We use **GitHub Flow** with protection rules:
 
-```mermaid
+```text
 graph LR
     A[main] --> B[feature/branch]
     B --> C[Pull Request]
@@ -233,7 +233,7 @@ Our CI/CD runs on every push and PR with **four parallel jobs**:
 
 ### Pipeline Stages
 
-```mermaid
+```text
 graph TD
     A[Code Push/PR] --> B{Fast Tests}
     B --> C{Linting}

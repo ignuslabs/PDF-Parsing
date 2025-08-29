@@ -2,15 +2,16 @@
 
 ## Table of Contents
 
-1. [System Overview](#system-overview)
-2. [Architecture Explanation](#architecture-explanation)
-3. [Technical Concepts](#technical-concepts)
-4. [Library Dependencies Analysis](#library-dependencies-analysis)
-5. [API Reference](#api-reference)
-6. [Component Specifications](#component-specifications)
+1. [System Overview](system-overview)
+2. [Architecture Explanation](architecture-explanation)
+3. [Technical Concepts](technical-concepts)
+4. [Library Dependencies Analysis](library-dependencies-analysis)
+5. [API Reference](api-reference)
+6. [Component Specifications](component-specifications)
 
 ---
 
+(system-overview)=
 ## System Overview
 
 The Smart PDF Parser is a sophisticated document processing system built around IBM's Docling library, providing intelligent PDF parsing, multi-modal search capabilities, and interactive verification workflows. The system transforms PDF documents into structured, searchable data while maintaining spatial and contextual relationships.
@@ -25,11 +26,12 @@ The Smart PDF Parser is a sophisticated document processing system built around 
 
 ---
 
+(architecture-explanation)=
 ## Architecture Explanation
 
 ### System Components Overview
 
-```mermaid
+```text
 graph TB
     subgraph "User Interface Layer"
         UI[Streamlit UI]
@@ -70,7 +72,7 @@ graph TB
 
 The system follows a clear data transformation pipeline:
 
-```mermaid
+```text
 flowchart LR
     PDF[PDF Document] --> Parser[DoclingParser]
     Parser --> Elements[DocumentElement List]
@@ -152,7 +154,7 @@ class SmartSearchEngine:
 - `PDFRenderer`: Provides visual overlay capabilities
 
 **Verification Workflow**:
-```mermaid
+```text
 stateDiagram-v2
     [*] --> Pending
     Pending --> Correct: mark_element_correct()
@@ -243,6 +245,7 @@ def _extract_bbox(self, item) -> Dict[str, float]:
 
 ---
 
+(technical-concepts)=
 ## Technical Concepts
 
 ### Coordinate System Transformations
@@ -353,6 +356,7 @@ def parse_document(self, pdf_path: Path) -> List[DocumentElement]:
 
 ---
 
+(library-dependencies-analysis)=
 ## Library Dependencies Analysis
 
 ### Core Dependencies
@@ -480,6 +484,7 @@ class SearchCache:
 
 ---
 
+(api-reference)=
 ## API Reference
 
 ### Core Classes
@@ -771,6 +776,7 @@ def load_verification_state(self, exported_data: str):
 
 ---
 
+(component-specifications)=
 ## Component Specifications
 
 ### Parser Configuration Options
@@ -937,7 +943,7 @@ verification_states = {
 ```
 
 ##### CSV Export Format
-```csv
+```text
 element_id,text,element_type,page_number,confidence,bbox_x0,bbox_y0,bbox_x1,bbox_y1,status,timestamp,verified_by,correction,notes
 0,"Document title",heading,1,0.95,100.0,50.0,400.0,80.0,correct,2024-01-15T10:25:00Z,user123,,
 1,"First paragraph",text,1,0.92,100.0,100.0,500.0,150.0,incorrect,2024-01-15T10:26:00Z,user123,"Corrected text",OCR error

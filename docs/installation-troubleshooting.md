@@ -294,7 +294,7 @@ pip install --no-cache-dir -r requirements.txt
 **A: Tesseract not in PATH**
 
 **Windows:**
-```cmd
+```batch
 # Find Tesseract installation
 dir "C:\Program Files\Tesseract-OCR\tesseract.exe"
 
@@ -656,7 +656,7 @@ venv\Scripts\Activate.ps1
 ```
 
 **Problem: Long path names**
-```cmd
+```batch
 # Enable long paths in Windows
 # Run as Administrator:
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1

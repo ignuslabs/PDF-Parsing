@@ -822,7 +822,7 @@ technical_checks = {
    ```
 
 **Sample CSV Output**:
-```csv
+```text
 id,page_number,element_type,text,confidence,x0,y0,x1,y1,verification_status
 1,1,heading,"Executive Summary",0.982,72.0,720.0,520.0,745.0,correct
 2,1,text,"This report presents the quarterly financial results...",0.945,72.0,680.0,520.0,715.0,correct

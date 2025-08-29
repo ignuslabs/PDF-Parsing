@@ -208,7 +208,7 @@ Tesseract is required for OCR functionality with scanned documents.
 2. Run the installer (tesseract-ocr-w64-setup-5.3.x.exe)
 3. **Important**: During installation, note the installation path (usually `C:\Program Files\Tesseract-OCR`)
 4. Add Tesseract to PATH:
-   ```cmd
+   ```batch
    # Add to system PATH
    setx PATH "%PATH%;C:\Program Files\Tesseract-OCR"
    

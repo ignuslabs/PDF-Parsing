@@ -10,7 +10,7 @@ Smart PDF Parser uses a **comprehensive multi-layered testing strategy** built a
 
 ### Test Pyramid Structure
 
-```mermaid
+```text
 pyramid TB
     A[Unit Tests<br/>~70% of tests<br/>Fast, isolated, deterministic]
     B[Integration Tests<br/>~20% of tests<br/>Component interaction]  

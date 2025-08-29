@@ -4,7 +4,49 @@ Welcome to the comprehensive documentation for Smart PDF Parser, a powerful docu
 
 ## 📚 Documentation Structure
 
-This documentation is organized into two main categories:
+This documentation is organized into four main categories following the Diátaxis framework:
+
+```{toctree}
+:maxdepth: 2
+:caption: 🎯 Tutorials (Learning-oriented)
+:hidden:
+
+getting-started
+installation-tutorial
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: 🛠️ How-To Guides (Problem-oriented)
+:hidden:
+
+installation-troubleshooting
+usage-howto-guides
+development-howto-guides
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: 📚 Reference (Information-oriented)
+:hidden:
+
+system-architecture
+development/workflow
+development/code-quality
+development/testing-strategy
+development/implementation-history/agent-prompt
+development/implementation-history/verification-ui-plan
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: 🔧 Maintenance (Operations-oriented)
+:hidden:
+
+maintenance/monitoring
+maintenance/troubleshooting
+maintenance/updates
+```
 
 ### 🎯 **Tutorials (Learning-oriented)**
 *Step-by-step lessons that take you by the hand through a series of steps to complete a project*
@@ -18,6 +60,23 @@ This documentation is organized into two main categories:
 - **[Installation Troubleshooting](installation-troubleshooting.md)** - Fix setup issues and problems
 - **[Usage How-To Guides](usage-howto-guides.md)** - Process different document types effectively
 - **[Development How-To Guides](development-howto-guides.md)** - Extend and contribute to the project
+
+### 📚 **Reference (Information-oriented)**
+*Technical descriptions of the machinery and how to operate it*
+
+- **[System Architecture](system-architecture.md)** - Core components and design patterns
+- **[Development Workflow](development/workflow.md)** - Development processes and standards
+- **[Code Quality Guidelines](development/code-quality.md)** - Standards and best practices
+- **[Testing Strategy](development/testing-strategy.md)** - Test organization and methodologies
+- **[Agent Prompt Implementation](development/implementation-history/agent-prompt.md)** - AI integration details
+- **[Verification UI Plan](development/implementation-history/verification-ui-plan.md)** - UI architecture and design
+
+### 🔧 **Maintenance (Operations-oriented)**
+*Practical steps for maintaining and operating the system*
+
+- **[System Monitoring](maintenance/monitoring.md)** - Performance and health monitoring
+- **[Troubleshooting Guide](maintenance/troubleshooting.md)** - Operational issue resolution
+- **[Updates and Migration](maintenance/updates.md)** - Version updates and data migration
 
 ---
 
@@ -127,7 +186,7 @@ Master the complete installation process:
 
 Smart PDF Parser follows this core workflow:
 
-```mermaid
+```text
 graph LR
     A[📄 Parse] --> B[🔍 Search]
     B --> C[✅ Verify]
