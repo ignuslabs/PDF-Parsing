@@ -7,6 +7,7 @@ numpy
 tesserocr
 myst_parser
 sphinx
+watchdog
 
 # Search and fuzzy matching
 fuzzywuzzy

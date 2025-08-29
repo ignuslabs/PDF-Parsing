@@ -36,7 +36,7 @@ def main():
         print(f"Current directory: {current_dir}")
         print("Expected structure: src/ui/app.py")
         return 1
-    
+    os.environ["TESSDATA_PREFIX"] = "/opt/homebrew/share/tessdata"
     # Check requirements
     if not check_requirements():
         return 1
@@ -46,6 +46,8 @@ def main():
     os.environ['STREAMLIT_SERVER_PORT'] = '8501'
     os.environ['STREAMLIT_SERVER_ADDRESS'] = 'localhost'
     
+    
+
     # Add src to Python path for both this process and child processes
     src_path = str(current_dir / "src")
     if src_path not in sys.path:
