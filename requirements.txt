@@ -8,6 +8,8 @@ tesserocr
 myst_parser
 sphinx
 watchdog
+PyPDF2
+pdfplumber
 
 # Search and fuzzy matching
 fuzzywuzzy

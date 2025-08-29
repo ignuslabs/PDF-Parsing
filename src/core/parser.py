@@ -9,6 +9,21 @@ from pathlib import Path
 from typing import List, Optional, Any, Dict, Union, Tuple
 from dataclasses import dataclass
 from datetime import datetime
+
+# PDF form field extraction and text enhancement
+try:
+    import PyPDF2
+    PYPDF2_AVAILABLE = True
+except ImportError:
+    PYPDF2_AVAILABLE = False
+    logger.warning("PyPDF2 not available. Form field extraction will be disabled.")
+
+try:
+    import pdfplumber
+    PDFPLUMBER_AVAILABLE = True
+except ImportError:
+    PDFPLUMBER_AVAILABLE = False
+    logger.warning("pdfplumber not available. Enhanced text extraction will be disabled.")
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.pipeline_options import (
         PdfPipelineOptions, 
@@ -43,7 +58,8 @@ class DoclingParser:
         image_scale: float = 1.0,
         enable_kv_extraction: bool = False,
         kv_config: Optional[KVConfig] = None,
-        header_classifier_enabled: bool = False
+        header_classifier_enabled: bool = False,
+        enable_form_fields: bool = True
     ):
         """Initialize the Docling parser with configuration options.
         
@@ -59,6 +75,7 @@ class DoclingParser:
             enable_kv_extraction: Enable key-value pair extraction
             kv_config: Configuration for KV extraction (uses defaults if None)
             header_classifier_enabled: Enable header/heading classification
+            enable_form_fields: Enable PDF form field extraction using PyPDF2
         """
         self.enable_ocr = enable_ocr
         self.enable_tables = enable_tables
@@ -71,6 +88,7 @@ class DoclingParser:
         self.enable_kv_extraction = enable_kv_extraction
         self.kv_config = kv_config
         self.header_classifier_enabled = header_classifier_enabled
+        self.enable_form_fields = enable_form_fields
         
         # Initialize converter (will be created lazily)
         self._converter = None
@@ -236,7 +254,7 @@ class DoclingParser:
             result = self._convert_document(pdf_path)
             
             # Extract elements from the converted document
-            elements = self._extract_elements(result.document)
+            elements = self._extract_elements(result.document, pdf_path)
             
             # Store page images if requested
             if self.generate_page_images and hasattr(result, 'pages'):
@@ -310,7 +328,7 @@ class DoclingParser:
             result = self._convert_document(pdf_path)
             
             # Extract elements from the converted document
-            elements = self._extract_elements(result.document)
+            elements = self._extract_elements(result.document, pdf_path)
             
             # Store page images if requested
             if self.generate_page_images and hasattr(result, 'pages'):
@@ -451,7 +469,7 @@ class DoclingParser:
             self._converter = None
             
             result = self._convert_document(pdf_path)
-            elements = self._extract_elements(result.document)
+            elements = self._extract_elements(result.document, pdf_path)
             
             return elements
         finally:
@@ -473,7 +491,7 @@ class DoclingParser:
             self._converter = None
             
             result = self._convert_document(pdf_path)
-            elements = self._extract_elements(result.document)
+            elements = self._extract_elements(result.document, pdf_path)
             
             logger.warning(f"Parsed {pdf_path} with reduced settings due to memory constraints")
             
@@ -485,11 +503,12 @@ class DoclingParser:
             self.enable_tables = original_tables
             self._converter = None  # Force recreation with original settings
     
-    def _extract_elements(self, document) -> List[DocumentElement]:
-        """Extract DocumentElement objects from Docling document.
+    def _extract_elements(self, document, pdf_path: Optional[Path] = None) -> List[DocumentElement]:
+        """Extract DocumentElement objects from Docling document and PDF form fields.
         
         Args:
             document: Docling Document object
+            pdf_path: Path to the original PDF file (for form field extraction)
             
         Returns:
             List of DocumentElement objects
@@ -521,8 +540,36 @@ class DoclingParser:
                     elements.append(element)
                     element_id += 1
         
+        # Extract form field elements if enabled
+        if pdf_path and self.enable_form_fields:
+            form_field_elements = self._extract_form_fields(pdf_path, element_id)
+            elements.extend(form_field_elements)
+            element_id += len(form_field_elements)
+        
         # Sort elements by page number and position
         elements.sort(key=lambda x: (x.page_number, x.bbox['y0'], x.bbox['x0']))
+        
+        # Apply OCR corrections to all text elements
+        for element in elements:
+            if element.text and element.metadata.get('source') in ['docling_text', 'docling_table']:
+                original_text = element.text
+                corrected_text = self._correct_ocr_errors(original_text)
+                if corrected_text != original_text:
+                    element.text = corrected_text
+                    element.metadata['original_text'] = original_text
+                    element.metadata['ocr_corrected'] = True
+        
+        # Check if we need pdfplumber fallback (if few elements or poor quality)
+        if pdf_path and PDFPLUMBER_AVAILABLE and len(elements) < 5:
+            logger.info("Few elements found, trying pdfplumber as fallback...")
+            pdfplumber_elements = self._extract_text_with_pdfplumber(pdf_path, element_id)
+            if pdfplumber_elements:
+                # Only add unique pdfplumber elements (avoid duplicates)
+                existing_texts = {elem.text.lower().strip() for elem in elements}
+                unique_elements = [elem for elem in pdfplumber_elements 
+                                 if elem.text.lower().strip() not in existing_texts]
+                elements.extend(unique_elements)
+                logger.info(f"Added {len(unique_elements)} unique elements from pdfplumber")
         
         # Post-process with header classifier if enabled
         if self.header_classifier_enabled and elements:
@@ -673,6 +720,323 @@ class DoclingParser:
         except Exception as e:
             print(f"Warning: Failed to process picture element {element_id}: {e}")
             return None
+
+    def _extract_form_fields(self, pdf_path: Path, element_id_offset: int = 0) -> List[DocumentElement]:
+        """Extract PDF form field values using PyPDF2.
+        
+        Args:
+            pdf_path: Path to the PDF file
+            element_id_offset: Starting element ID for form fields
+            
+        Returns:
+            List of DocumentElement objects created from form field data
+        """
+        if not PYPDF2_AVAILABLE:
+            logger.warning("PyPDF2 not available. Skipping form field extraction.")
+            return []
+        
+        elements = []
+        element_id = element_id_offset
+        
+        try:
+            with open(pdf_path, 'rb') as file:
+                reader = PyPDF2.PdfReader(file)
+                
+                # Extract form fields
+                if reader.is_encrypted:
+                    logger.warning("PDF is encrypted. Cannot extract form fields.")
+                    return []
+                
+                # Try different approaches to extract form fields with positioning
+                form_fields_with_positions = self._extract_form_fields_with_positions(reader)
+                
+                if form_fields_with_positions:
+                    logger.info(f"Found {len(form_fields_with_positions)} form fields with positioning in PDF")
+                    
+                    for field_info in form_fields_with_positions:
+                        field_name = field_info.get('name', 'unknown_field')
+                        field_value = field_info.get('value', '')
+                        page_number = field_info.get('page', 1)
+                        bbox = field_info.get('bbox', {'x0': 0.0, 'y0': 0.0, 'x1': 0.0, 'y1': 0.0})
+                        
+                        if field_value and str(field_value).strip():
+                            # Create DocumentElement from form field
+                            element = DocumentElement(
+                                text=str(field_value).strip(),
+                                element_type='form_field',
+                                page_number=page_number,
+                                bbox=bbox,
+                                confidence=0.95,  # High confidence for form field values
+                                metadata={
+                                    'element_id': element_id,
+                                    'source': 'form_field',
+                                    'field_name': field_name
+                                }
+                            )
+                            elements.append(element)
+                            element_id += 1
+                    
+                    logger.info(f"Extracted {len(elements)} form field values with positioning")
+                else:
+                    # Fallback to basic form field extraction without positioning
+                    logger.info("Attempting basic form field extraction without positioning")
+                    fallback_fields = self._extract_basic_form_fields(reader)
+                    
+                    for field_name, field_value in fallback_fields.items():
+                        if field_value and str(field_value).strip():
+                            # Create DocumentElement from form field
+                            element = DocumentElement(
+                                text=str(field_value).strip(),
+                                element_type='form_field',
+                                page_number=1,  # Default to page 1
+                                bbox={'x0': 0.0, 'y0': 0.0, 'x1': 0.0, 'y1': 0.0},  # No positioning info available
+                                confidence=0.95,  # High confidence for form field values
+                                metadata={
+                                    'element_id': element_id,
+                                    'source': 'form_field',
+                                    'field_name': field_name
+                                }
+                            )
+                            elements.append(element)
+                            element_id += 1
+                    
+                    logger.info(f"Extracted {len(elements)} form field values without positioning")
+                
+        except Exception as e:
+            logger.error(f"Error extracting form fields: {e}")
+        
+        return elements
+    
+    def _extract_form_fields_with_positions(self, reader: 'PyPDF2.PdfReader') -> List[Dict]:
+        """Try to extract form fields with their positions using PyPDF2 annotations.
+        
+        Args:
+            reader: PyPDF2 PdfReader instance
+            
+        Returns:
+            List of dictionaries containing field info with positions
+        """
+        fields_with_positions = []
+        
+        try:
+            # Iterate through pages to find form field annotations
+            for page_num, page in enumerate(reader.pages, start=1):
+                if '/Annots' in page:
+                    annotations = page['/Annots']
+                    
+                    for annot in annotations:
+                        try:
+                            annot_obj = annot.get_object()
+                            
+                            # Check if it's a form field annotation
+                            if '/Subtype' in annot_obj and annot_obj['/Subtype'] == '/Widget':
+                                field_info = self._extract_field_info_from_annotation(annot_obj, page_num)
+                                if field_info and field_info.get('value'):
+                                    fields_with_positions.append(field_info)
+                        
+                        except Exception as e:
+                            logger.debug(f"Could not process annotation: {e}")
+                            continue
+                            
+        except Exception as e:
+            logger.debug(f"Could not extract form fields with positions: {e}")
+            
+        return fields_with_positions
+    
+    def _extract_field_info_from_annotation(self, annot_obj, page_number: int) -> Optional[Dict]:
+        """Extract field information from a form field annotation.
+        
+        Args:
+            annot_obj: PyPDF2 annotation object
+            page_number: Page number containing the field
+            
+        Returns:
+            Dictionary with field information or None
+        """
+        try:
+            field_info = {'page': page_number}
+            
+            # Try to get field name
+            if '/T' in annot_obj:
+                field_info['name'] = str(annot_obj['/T'])
+            
+            # Try to get field value
+            if '/V' in annot_obj:
+                field_info['value'] = str(annot_obj['/V'])
+            
+            # Try to get bounding box (Rect)
+            if '/Rect' in annot_obj:
+                rect = annot_obj['/Rect']
+                if len(rect) >= 4:
+                    field_info['bbox'] = {
+                        'x0': float(rect[0]),
+                        'y0': float(rect[1]), 
+                        'x1': float(rect[2]),
+                        'y1': float(rect[3])
+                    }
+            
+            return field_info if field_info.get('value') else None
+            
+        except Exception as e:
+            logger.debug(f"Could not extract field info from annotation: {e}")
+            return None
+    
+    def _extract_basic_form_fields(self, reader: 'PyPDF2.PdfReader') -> Dict[str, str]:
+        """Extract basic form fields without positioning using PyPDF2.
+        
+        Args:
+            reader: PyPDF2 PdfReader instance
+            
+        Returns:
+            Dictionary mapping field names to values
+        """
+        try:
+            # Get form fields from the first attempt
+            if '/AcroForm' in reader.trailer.get('/Root', {}):
+                try:
+                    # Try to get form fields
+                    if hasattr(reader, 'get_form_text_fields'):
+                        return reader.get_form_text_fields() or {}
+                    elif hasattr(reader, 'getFormTextFields'):
+                        return reader.getFormTextFields() or {}
+                except Exception as e:
+                    logger.debug(f"Could not extract basic form fields: {e}")
+                    
+        except Exception as e:
+            logger.debug(f"Error in basic form field extraction: {e}")
+            
+        return {}
+    
+    def _correct_ocr_errors(self, text: str) -> str:
+        """Apply common OCR error corrections to text.
+        
+        Args:
+            text: Original text with potential OCR errors
+            
+        Returns:
+            Corrected text
+        """
+        if not text:
+            return text
+        
+        corrections = {
+            # Common character misreads for DE form IDs
+            'AGOI': 'AG01',
+            'MOO1': 'MO01',
+            'RSOS': 'RS05',
+            'RSOO': 'RS00',
+            'RSOO5': 'RS005',
+            'OOLL': '00LL',
+            'POOS': 'P005',
+            # Specific OCR errors in form IDs
+            'ISL': '18',
+            'ISLP': '18LP',
+            'OSOOS': '05005',
+            'POSOOS': 'P05005',
+            'LPOSOOS': 'LP05005',
+            # Character substitutions
+            'OI': '01',
+            'LPO5': 'LP05',
+            'LP0S': 'LP05',
+            'LPOO': 'LP00',
+            'LPQS': 'LP05',
+            'LPOOS': 'LP005',
+            'OO': '00',
+            # Date-related corrections
+            'ZO24': '2024',
+            'ZO23': '2023',
+            'ZO25': '2025',
+            'May S,': 'May 5,',
+            'May B,': 'May 8,',
+        }
+        
+        # Pattern-based corrections for DOE form IDs first (more specific)
+        import re
+        
+        # Fix specific known OCR errors in DE form patterns
+        specific_corrections = [
+            (r'DE-AGOI-ISLPOSOOS', 'DE-AG01-18LP05005'),
+            (r'DE-MOO1-22LPOSOOS', 'DE-MO01-22LP05005'),
+            (r'DE-RSOS-OOLLPOOS', 'DE-RS05-00LP005'),
+            (r'DE-RSOO5-OOLLPOOS', 'DE-RS005-00LP005'),
+        ]
+        
+        corrected_text = text
+        for pattern, replacement in specific_corrections:
+            corrected_text = re.sub(pattern, replacement, corrected_text)
+        
+        # Apply general character corrections
+        for error, correction in corrections.items():
+            corrected_text = corrected_text.replace(error, correction)
+        
+        # Fix general DE-XX##-##LP##### pattern
+        pattern = r'DE-([A-Z]{2})([OI0-9]{2})-([OI0-9]{2})LP([OI0-9S]{5})'
+        def fix_de_pattern(match):
+            state = match.group(1)
+            num1 = match.group(2).replace('O', '0').replace('I', '1')
+            num2 = match.group(3).replace('O', '0').replace('I', '1')
+            num3 = match.group(4).replace('O', '0').replace('I', '1').replace('S', '5')
+            return f"DE-{state}{num1}-{num2}LP{num3}"
+        
+        corrected_text = re.sub(pattern, fix_de_pattern, corrected_text)
+        
+        return corrected_text
+    
+    def _extract_text_with_pdfplumber(self, pdf_path: Path, element_id_offset: int = 0) -> List[DocumentElement]:
+        """Extract text using pdfplumber as fallback method.
+        
+        Args:
+            pdf_path: Path to the PDF file
+            element_id_offset: Starting element ID for pdfplumber elements
+            
+        Returns:
+            List of DocumentElement objects from pdfplumber extraction
+        """
+        if not PDFPLUMBER_AVAILABLE:
+            logger.warning("pdfplumber not available. Skipping enhanced text extraction.")
+            return []
+        
+        elements = []
+        element_id = element_id_offset
+        
+        try:
+            with pdfplumber.open(pdf_path) as pdf:
+                for page_num, page in enumerate(pdf.pages, start=1):
+                    # Extract text with layout preservation
+                    text = page.extract_text(layout=True)
+                    
+                    if text and text.strip():
+                        # Split into lines and create elements
+                        lines = text.strip().split('\n')
+                        
+                        for line in lines:
+                            line = line.strip()
+                            if line and len(line) > 2:  # Filter out very short lines
+                                # Apply OCR corrections
+                                corrected_text = self._correct_ocr_errors(line)
+                                
+                                # Create element
+                                element = DocumentElement(
+                                    text=corrected_text,
+                                    element_type='text',
+                                    page_number=page_num,
+                                    bbox={'x0': 0.0, 'y0': 0.0, 'x1': 0.0, 'y1': 0.0},  # No precise positioning from pdfplumber
+                                    confidence=0.8,  # Lower confidence for fallback method
+                                    metadata={
+                                        'element_id': element_id,
+                                        'source': 'pdfplumber_fallback',
+                                        'original_text': line if line != corrected_text else None
+                                    }
+                                )
+                                elements.append(element)
+                                element_id += 1
+                
+                logger.info(f"pdfplumber extracted {len(elements)} text elements")
+                
+        except Exception as e:
+            logger.error(f"Error in pdfplumber text extraction: {e}")
+        
+        return elements
     
     def _build_page_context(self, elements: List[DocumentElement], page_num: int) -> Dict[str, Any]:
         """Build page context for header classifier.

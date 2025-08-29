@@ -36,6 +36,7 @@ development/code-quality
 development/testing-strategy
 development/implementation-history/agent-prompt
 development/implementation-history/verification-ui-plan
+design/field-extraction
 ```
 
 ```{toctree}
@@ -70,6 +71,7 @@ maintenance/updates
 - **[Testing Strategy](development/testing-strategy.md)** - Test organization and methodologies
 - **[Agent Prompt Implementation](development/implementation-history/agent-prompt.md)** - AI integration details
 - **[Verification UI Plan](development/implementation-history/verification-ui-plan.md)** - UI architecture and design
+- **[Field Extraction Design](design/field-extraction.md)** - Key-value pair extraction system architecture
 
 ### 🔧 **Maintenance (Operations-oriented)**
 *Practical steps for maintaining and operating the system*
@@ -153,6 +155,7 @@ Master the complete installation process:
 - 📄 **Business Reports** - Process financial data and corporate documents  
 - 📄 **Legal Documents** - Maintain precision for contracts and legal content
 - 📄 **Technical Manuals** - Preserve code blocks and procedural content
+- 📄 **Forms and Applications** - Extract key-value pairs from structured documents
 - 📄 **Scanned Documents** - Optimize OCR for image-based PDFs
 
 #### Advanced Usage:
@@ -198,9 +201,9 @@ graph LR
     D1[Multiple Formats] --> D
 ```
 
-1. **📄 Parse** - Extract elements from PDFs using Docling
+1. **📄 Parse** - Extract elements and key-value pairs from PDFs using Docling
 2. **🔍 Search** - Find content with exact, fuzzy, or semantic search
-3. **✅ Verify** - Validate extraction accuracy with visual verification
+3. **✅ Verify** - Validate extraction accuracy with visual verification and KV highlighting
 4. **📊 Export** - Output results in JSON, CSV, Markdown, or HTML
 
 ---
@@ -233,6 +236,7 @@ graph LR
 ### 🧠 **Intelligent Document Processing**
 - IBM Docling integration for accurate text extraction
 - Multi-modal content recognition (text, tables, images, formulas)
+- **Key-Value Extraction** for forms, applications, and structured documents
 - Confidence scoring and quality assessment
 
 ### 🔍 **Advanced Search Capabilities** 
@@ -242,6 +246,7 @@ graph LR
 
 ### ✅ **Interactive Verification System**
 - Visual document overlay for accuracy checking
+- **Key-Value Pair Visualization** with color-coded highlighting
 - Correction workflow with state tracking
 - Quality metrics and progress monitoring
 

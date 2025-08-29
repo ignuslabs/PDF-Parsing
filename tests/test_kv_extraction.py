@@ -870,34 +870,66 @@ class TestKVExtractionPerformance:
         - Should complete within reasonable time limits
         - Memory usage should remain bounded
         """
-        pytest.skip("Performance test - requires large document fixture")
+        from src.core.kv_extraction import KeyValueExtractor
+        import time
         
-        # Future implementation for performance testing:
-        # from src.core.kv_extraction import KeyValueExtractor
-        # import time
-        # 
-        # # Generate large document with many elements
-        # elements = create_large_form_document(pages=10, elements_per_page=100)
-        # extractor = KeyValueExtractor()
-        # 
-        # start_time = time.time()
-        # pairs = extractor.extract(elements)
-        # end_time = time.time()
-        # 
-        # extraction_time = end_time - start_time
-        # assert extraction_time < 5.0  # Should complete within 5 seconds
-        # 
-        # # Memory usage should be reasonable
-        # import psutil
-        # process = psutil.Process()
-        # memory_mb = process.memory_info().rss / 1024 / 1024
-        # assert memory_mb < 500  # Should use less than 500MB
+        # Generate large document with many elements
+        elements = create_large_form_document(pages=10, elements_per_page=100)
+        extractor = KeyValueExtractor()
+        
+        start_time = time.time()
+        pairs = extractor.extract(elements)
+        end_time = time.time()
+        
+        extraction_time = end_time - start_time
+        
+        # Performance assertions
+        assert extraction_time < 10.0, f"Extraction took {extraction_time:.2f}s, should be under 10s"
+        assert len(pairs) > 0, "Should extract at least some pairs from large document"
+        
+        # Check throughput - should process at least 100 elements/second
+        elements_per_second = len(elements) / extraction_time
+        assert elements_per_second > 100, f"Only processed {elements_per_second:.1f} elements/second"
+        
+        print(f"Performance metrics:")
+        print(f"  - Processed {len(elements)} elements in {extraction_time:.3f}s")
+        print(f"  - Throughput: {elements_per_second:.1f} elements/second")
+        print(f"  - Extracted {len(pairs)} KV pairs")
+        print(f"  - KV extraction rate: {len(pairs)/extraction_time:.1f} pairs/second")
     
+    @pytest.mark.performance  
     def test_extraction_scales_linearly(self):
         """Test that extraction time scales approximately linearly with input size."""
-        pytest.skip("Performance test - requires implementation")
+        from src.core.kv_extraction import KeyValueExtractor
+        import time
         
-        # Test with different document sizes and measure scaling behavior
+        extractor = KeyValueExtractor()
+        test_sizes = [100, 200, 400]  # Different numbers of elements
+        times = []
+        
+        for size in test_sizes:
+            elements = create_large_form_document(pages=1, elements_per_page=size)
+            
+            start_time = time.time()
+            pairs = extractor.extract(elements)
+            end_time = time.time()
+            
+            extraction_time = end_time - start_time
+            times.append(extraction_time)
+            
+            print(f"Size {size}: {extraction_time:.4f}s ({len(pairs)} pairs)")
+        
+        # Check that scaling is roughly linear (not exponential)
+        # Time should approximately double when size doubles
+        ratio_1_to_2 = times[1] / times[0] if times[0] > 0 else float('inf')
+        ratio_2_to_3 = times[2] / times[1] if times[1] > 0 else float('inf')
+        
+        # Allow some variance but ensure it's not exponential growth
+        # Linear scaling should have ratios close to 2 (since we double the size)
+        assert ratio_1_to_2 < 4.0, f"Scaling from 100->200 took {ratio_1_to_2:.2f}x time (should be ~2x)"
+        assert ratio_2_to_3 < 4.0, f"Scaling from 200->400 took {ratio_2_to_3:.2f}x time (should be ~2x)"
+        
+        print(f"Scaling ratios: 100->200 = {ratio_1_to_2:.2f}x, 200->400 = {ratio_2_to_3:.2f}x")
 
 
 # Utility functions for test data generation
@@ -907,44 +939,79 @@ def create_large_form_document(pages: int = 5, elements_per_page: int = 50) -> L
     
     Args:
         pages: Number of pages to generate
-        elements_per_page: Number of elements per page
+        elements_per_page: Number of elements per page (should be even for proper pairing)
         
     Returns:
-        List of DocumentElements representing a large form
+        List of DocumentElements representing a large form with proper KV pairs
     """
     elements = []
     
+    # Common label-value patterns for more realistic generation
+    label_patterns = [
+        "Name:", "Address:", "Phone:", "Email:", "Date of Birth:", "SSN:",
+        "Company:", "Position:", "Start Date:", "End Date:", "Department:",
+        "Manager:", "Salary:", "Benefits:", "Emergency Contact:", "Relationship:",
+        "Medical Conditions:", "Allergies:", "Insurance Provider:", "Policy Number:",
+        "Bank Name:", "Account Number:", "Routing Number:", "Tax ID:", "License Number:"
+    ]
+    
+    value_patterns = [
+        "John A. Smith", "123 Main Street", "(555) 123-4567", "john@example.com", 
+        "01/15/1985", "123-45-6789", "ACME Corporation", "Software Engineer",
+        "03/01/2020", "12/31/2023", "Engineering", "Jane Manager", "$75,000",
+        "Health, Dental, Vision", "Mary Emergency", "Spouse", "None", "None",
+        "Blue Cross", "POL-123456", "First National Bank", "1234567890", "987654321",
+        "12-3456789", "DL-9876543"
+    ]
+    
     for page_num in range(1, pages + 1):
-        for i in range(elements_per_page):
-            # Mix of labels and values
-            if i % 2 == 0:  # Label
-                elements.append(DocumentElement(
-                    text=f"Field {i}:",
-                    element_type='text',
-                    page_number=page_num,
-                    bbox={
-                        'x0': 50.0,
-                        'y0': 750.0 - i * 15,
-                        'x1': 120.0,
-                        'y1': 765.0 - i * 15
-                    },
-                    confidence=0.85,
-                    metadata={}
-                ))
-            else:  # Value
-                elements.append(DocumentElement(
-                    text=f"Value {i}",
-                    element_type='text', 
-                    page_number=page_num,
-                    bbox={
-                        'x0': 130.0,
-                        'y0': 750.0 - i * 15,
-                        'x1': 200.0, 
-                        'y1': 765.0 - i * 15
-                    },
-                    confidence=0.85,
-                    metadata={}
-                ))
+        pair_count = elements_per_page // 2  # Create proper pairs
+        
+        # Calculate appropriate Y spacing to fit all pairs on page
+        page_height = 792.0  # Standard letter size
+        top_margin = 50.0
+        bottom_margin = 50.0
+        usable_height = page_height - top_margin - bottom_margin
+        
+        if pair_count > 1:
+            y_spacing = min(30.0, usable_height / pair_count)
+        else:
+            y_spacing = 30.0
+        
+        for i in range(pair_count):
+            y_position = page_height - top_margin - i * y_spacing
+            
+            # Label (left side)
+            label_text = label_patterns[i % len(label_patterns)]
+            elements.append(DocumentElement(
+                text=label_text,
+                element_type='text',
+                page_number=page_num,
+                bbox={
+                    'x0': 50.0,
+                    'y0': y_position,
+                    'x1': 150.0,
+                    'y1': y_position + 20
+                },
+                confidence=0.85,
+                metadata={}
+            ))
+            
+            # Value (right side, same line)
+            value_text = value_patterns[i % len(value_patterns)]
+            elements.append(DocumentElement(
+                text=value_text,
+                element_type='text', 
+                page_number=page_num,
+                bbox={
+                    'x0': 160.0,  # Close to label for same-line pairing
+                    'y0': y_position,
+                    'x1': 350.0, 
+                    'y1': y_position + 20
+                },
+                confidence=0.85,
+                metadata={}
+            ))
     
     return elements
 
