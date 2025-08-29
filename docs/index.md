@@ -1,5 +1,11 @@
 # Smart PDF Parser Documentation
 
+```{toctree}
+:maxdepth: 2
+:caption: Contents
+
+getting-started
+```
 Welcome to the comprehensive documentation for Smart PDF Parser, a powerful document analysis tool built on IBM's Docling library. This documentation follows the [Diátaxis framework](https://diataxis.fr/) to provide both learning-oriented tutorials and problem-solving how-to guides.
 
 ## 📚 Documentation Structure
