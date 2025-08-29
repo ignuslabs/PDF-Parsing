@@ -5,7 +5,8 @@ python-dotenv
 pandas
 numpy
 tesserocr
-
+myst_parser
+sphinx
 
 # Search and fuzzy matching
 fuzzywuzzy
