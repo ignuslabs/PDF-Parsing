@@ -18,6 +18,7 @@ import streamlit as st
 import tempfile
 import os
 import time
+import logging
 from typing import Optional
 
 # Project imports (now that path is set)
@@ -207,6 +208,70 @@ def create_parser_from_config():
     )
 
 
+class StreamlitLogHandler(logging.Handler):
+    """Custom log handler that captures log messages for later display."""
+    
+    def __init__(self):
+        super().__init__()
+        self.messages = []
+        
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            self.messages.append((record.levelname, msg))
+        except Exception:
+            pass  # Silently ignore errors in log handler
+    
+    def display_messages(self, container):
+        """Display all captured messages in the given container."""
+        with container:
+            for level, message in self.messages:
+                if "🚀 Starting" in message or "🎉 Completed" in message:
+                    st.success(message)
+                elif "⏳ Step" in message:
+                    st.info(message)
+                elif "✅ Completed:" in message:
+                    st.success(message)
+                elif "📊 ETA" in message or "💾 Memory" in message:
+                    st.text(message)
+                elif level == "ERROR" or "❌" in message:
+                    st.error(message)
+                elif level == "WARNING":
+                    st.warning(message)
+                else:
+                    st.text(message)
+
+
+def parse_document_with_progress(pdf_path: Path, parser: DoclingParser, log_container) -> Optional[ParsedDocument]:
+    """Parse a PDF document with real-time progress updates."""
+    try:
+        # Create and add custom log handler
+        streamlit_handler = StreamlitLogHandler()
+        streamlit_handler.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(message)s')
+        streamlit_handler.setFormatter(formatter)
+        
+        # Get the parser's logger and add our handler
+        parser_logger = logging.getLogger('src.core.parser')
+        parser_logger.addHandler(streamlit_handler)
+        
+        try:
+            # Use the full parsing method to get metadata
+            parsed_doc = parser.parse_document_full(pdf_path)
+            
+            # Display all captured log messages
+            streamlit_handler.display_messages(log_container)
+            
+            return parsed_doc
+        finally:
+            # Remove the handler to avoid accumulating handlers
+            parser_logger.removeHandler(streamlit_handler)
+            
+    except Exception as e:
+        st.error(f"Failed to parse document: {str(e)}")
+        return None
+
+
 def parse_document(pdf_path: Path, parser: DoclingParser) -> Optional[ParsedDocument]:
     """Parse a PDF document and return the result."""
     try:
@@ -331,18 +396,30 @@ def main():
                     st.error(f"Failed to create parser: {str(e)}")
                     return
 
-                # Progress tracking
+                # Progress tracking containers
                 progress_bar = st.progress(0, text="Initializing...")
                 status_text = st.empty()
+                
+                # Create detailed progress log container
+                st.subheader("🔍 Detailed Progress")
+                log_container = st.container()
+                
                 results_container = st.container()
 
                 parsed_docs = []
 
                 for i, uploaded_file in enumerate(valid_files):
-                    # Update progress
-                    progress = (i + 1) / len(valid_files)
+                    # Update main progress bar
+                    file_progress = i / len(valid_files)
                     status_text.text(f"Parsing {uploaded_file.name} ({i+1}/{len(valid_files)})")
-                    progress_bar.progress(progress, text=f"Processing {uploaded_file.name}...")
+                    progress_bar.progress(file_progress, text=f"Processing {uploaded_file.name}...")
+
+                    # Clear log container for this file
+                    with log_container:
+                        st.markdown(f"**Processing:** {uploaded_file.name}")
+                        
+                    # Create a container for this file's progress logs
+                    file_log_container = log_container.container()
 
                     # Save uploaded file temporarily
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
@@ -350,9 +427,9 @@ def main():
                         tmp_path = Path(tmp_file.name)
 
                     try:
-                        # Parse document
+                        # Parse document with detailed progress
                         start_time = time.time()
-                        parsed_doc = parse_document(tmp_path, parser)
+                        parsed_doc = parse_document_with_progress(tmp_path, parser, file_log_container)
                         parsing_time = time.time() - start_time
 
                         if parsed_doc:
@@ -360,10 +437,15 @@ def main():
                             parsed_doc.metadata["parsing_time_seconds"] = parsing_time
                             parsed_docs.append(parsed_doc)
 
+                            with file_log_container:
+                                st.success(f"🎉 Successfully parsed {uploaded_file.name} in {parsing_time:.1f}s")
+                                
                             status_text.success(
                                 f"✅ Parsed {uploaded_file.name} in {parsing_time:.1f}s"
                             )
                         else:
+                            with file_log_container:
+                                st.error(f"❌ Failed to parse {uploaded_file.name}")
                             status_text.error(f"❌ Failed to parse {uploaded_file.name}")
 
                     finally:

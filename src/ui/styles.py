@@ -7,9 +7,10 @@ Provides custom CSS styling and visual enhancements for the application.
 import streamlit as st
 from typing import Optional
 
+
 def apply_custom_styles():
     """Apply custom CSS styles to the Streamlit application."""
-    
+
     custom_css = """
     <style>
     /* Main application styling */
@@ -369,73 +370,68 @@ def apply_custom_styles():
     }
     </style>
     """
-    
+
     st.markdown(custom_css, unsafe_allow_html=True)
 
 
 def create_element_badge(element_type: str, confidence: Optional[float] = None) -> str:
     """Create a styled badge for element type.
-    
+
     Args:
         element_type: Type of the element
         confidence: Confidence score (optional)
-        
+
     Returns:
         HTML string for the badge
     """
     badge_html = f'<span class="element-badge {element_type}">{element_type.title()}</span>'
-    
+
     if confidence is not None:
         conf_class = "high" if confidence >= 0.8 else "medium" if confidence >= 0.6 else "low"
-        badge_html += f'''
+        badge_html += f"""
         <div class="confidence-indicator" title="Confidence: {confidence:.3f}">
             <div class="confidence-fill confidence-{conf_class}" 
                  style="width: {confidence * 100}%"></div>
         </div>
-        '''
-    
+        """
+
     return badge_html
 
 
 def create_verification_badge(status: str) -> str:
     """Create a styled badge for verification status.
-    
+
     Args:
         status: Verification status
-        
+
     Returns:
         HTML string for the badge
     """
-    status_icons = {
-        'pending': '⏳',
-        'correct': '✅',
-        'incorrect': '❌',
-        'partial': '⚠️'
-    }
-    
-    icon = status_icons.get(status, '❓')
-    
-    return f'''
+    status_icons = {"pending": "⏳", "correct": "✅", "incorrect": "❌", "partial": "⚠️"}
+
+    icon = status_icons.get(status, "❓")
+
+    return f"""
     <span class="verification-status {status}">
         {icon} {status.title()}
     </span>
-    '''
+    """
 
 
 def create_progress_indicator(progress: float, label: str = "") -> str:
     """Create a styled progress indicator.
-    
+
     Args:
         progress: Progress value (0-1)
         label: Optional label
-        
+
     Returns:
         HTML string for the progress indicator
     """
     percentage = int(progress * 100)
     color = "high" if progress >= 0.8 else "medium" if progress >= 0.5 else "low"
-    
-    return f'''
+
+    return f"""
     <div style="text-align: center; margin: 1rem 0;">
         {f"<div><strong>{label}</strong></div>" if label else ""}
         <div class="confidence-indicator" style="width: 200px; margin: 0.5rem auto;">
@@ -444,20 +440,14 @@ def create_progress_indicator(progress: float, label: str = "") -> str:
         </div>
         <div style="font-size: 0.9rem; color: #666;">{percentage}%</div>
     </div>
-    '''
+    """
 
 
 def add_page_transition():
     """Add page transition animation."""
-    st.markdown(
-        '<div class="page-transition">',
-        unsafe_allow_html=True
-    )
+    st.markdown('<div class="page-transition">', unsafe_allow_html=True)
 
 
 def close_page_transition():
     """Close page transition div."""
-    st.markdown(
-        '</div>',
-        unsafe_allow_html=True
-    )
+    st.markdown("</div>", unsafe_allow_html=True)

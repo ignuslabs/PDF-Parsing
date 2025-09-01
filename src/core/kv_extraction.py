@@ -18,9 +18,14 @@ from dataclasses import dataclass
 from typing import List, Optional, Dict, Any, Tuple
 import re
 import math
+import logging
 from collections import defaultdict
 
 from src.core.models import DocumentElement, KeyValuePair
+from src.utils.logging_config import ProgressTracker, time_it, log_memory_usage
+
+# Initialize logger for KV extraction
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -76,6 +81,7 @@ class KeyValueExtractor:
         """
         self.cfg = config if config is not None else KVConfig()
 
+    @time_it(logger=logger)
     def extract(self, elements: List[DocumentElement]) -> List[KeyValuePair]:
         """Extract key-value pairs from document elements.
 
@@ -89,24 +95,42 @@ class KeyValueExtractor:
             List of extracted KeyValuePair objects
         """
         if not elements:
+            logger.info("No elements provided for KV extraction")
             return []
 
+        logger.info(f"🚀 Starting KV extraction from {len(elements)} elements")
+        
+        # Initialize progress tracking
+        page_groups = self._group_by_page(elements)
+        total_pages = len(page_groups)
+        
+        progress = ProgressTracker("KV Extraction", total_pages, logger)
         all_pairs = []
 
         # Process each page independently
-        page_groups = self._group_by_page(elements)
-
         for page_num, page_elements in page_groups.items():
+            progress.start_step(f"Processing page {page_num}")
+            
             if not page_elements:
+                progress.complete_step(0, "No elements on page")
                 continue
 
             try:
                 page_pairs = self._extract_page_pairs(page_elements, page_num)
                 all_pairs.extend(page_pairs)
-            except Exception:
-                # Skip problematic pages rather than failing completely
+                progress.complete_step(
+                    len(page_pairs), 
+                    f"Found {len(page_pairs)} KV pairs on page {page_num}"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to extract KV pairs from page {page_num}: {e}")
+                progress.complete_step(0, f"Failed: {e}")
                 continue
 
+        progress.finish(success=True)
+        log_memory_usage(logger, "KV extraction")
+        
+        logger.info(f"🎉 KV extraction completed: {len(all_pairs)} pairs found across {total_pages} pages")
         return all_pairs
 
     def _extract_page_pairs(
@@ -121,18 +145,26 @@ class KeyValueExtractor:
         Returns:
             List of KeyValuePair objects for this page
         """
+        logger.debug(f"Starting KV extraction for page {page_num} with {len(elements)} elements")
+        
         # Filter out empty or invalid text
         valid_elements = [e for e in elements if e.text and e.text.strip()]
         if not valid_elements:
+            logger.debug(f"Page {page_num}: No valid text elements found")
             return []
+
+        logger.debug(f"Page {page_num}: {len(valid_elements)} valid elements after filtering")
 
         # Step 1: Cluster elements into lines
         lines = self._cluster_lines(valid_elements)
         if not lines:
+            logger.debug(f"Page {page_num}: No lines detected")
             return []
+        logger.debug(f"Page {page_num}: Clustered into {len(lines)} lines")
 
         # Step 2: Detect column boundaries
         columns = self._cluster_columns(valid_elements)
+        logger.debug(f"Page {page_num}: Detected {len(columns)} columns")
 
         # Step 3: Build spatial index for efficient value lookup
         value_candidates = [
@@ -140,11 +172,14 @@ class KeyValueExtractor:
             for e in valid_elements
             if e.element_type not in {"table", "image", "heading", "code", "formula"}
         ]
+        logger.debug(f"Page {page_num}: {len(value_candidates)} value candidates identified")
 
         # Step 4: Find label-value pairs
         pairs = []
         used_values = set()  # Track used elements to prevent duplicates
         used_labels = set()  # Track used labels to prevent them being values
+        potential_labels = 0
+        successful_pairs = 0
 
         for element in valid_elements:
             # Skip if already used as a value
@@ -157,7 +192,11 @@ class KeyValueExtractor:
 
             # Score element as potential label
             label_score = self._score_label(element, self.cfg)
-            if label_score < 0.5:  # Label threshold from implementation plan
+            if label_score >= 0.5:  # Label threshold from implementation plan
+                potential_labels += 1
+                logger.debug(f"Page {page_num}: Potential label '{element.text[:30]}...' (score: {label_score:.3f})")
+
+            if label_score < 0.5:
                 continue
 
             # Filter value candidates to exclude already-used labels and values
@@ -170,9 +209,11 @@ class KeyValueExtractor:
                 element, available_candidates, lines, columns, used_values
             )
             if not value_info:
+                logger.debug(f"Page {page_num}: No value found for label '{element.text[:30]}...'")
                 continue
 
             value_element, strategy, geom_score = value_info
+            logger.debug(f"Page {page_num}: Found value using '{strategy}' strategy (geom_score: {geom_score:.3f})")
 
             # Mark value elements as used and handle multiline merging
             value_elements = [value_element]
@@ -184,6 +225,7 @@ class KeyValueExtractor:
                 # Only use merged result if we actually found continuation lines
                 if len(merged_elements) > 1:
                     value_elements = merged_elements
+                    logger.debug(f"Page {page_num}: Merged {len(value_elements)} value elements")
 
             for ve in value_elements:
                 used_values.add(id(ve))
@@ -194,6 +236,7 @@ class KeyValueExtractor:
             # Create combined value text
             value_text = " ".join(ve.text.strip() for ve in value_elements if ve.text.strip())
             if len(value_text) < self.cfg.min_value_len:
+                logger.debug(f"Page {page_num}: Value text too short: '{value_text}'")
                 continue
 
             # Calculate content score
@@ -223,7 +266,10 @@ class KeyValueExtractor:
             )
 
             pairs.append(pair)
+            successful_pairs += 1
+            logger.debug(f"Page {page_num}: Created KV pair '{element.text}' = '{value_text[:50]}...' (confidence: {confidence:.3f})")
 
+        logger.debug(f"Page {page_num}: Found {potential_labels} potential labels, created {successful_pairs} KV pairs")
         return pairs
 
     def _group_by_page(self, elements: List[DocumentElement]) -> Dict[int, List[DocumentElement]]:

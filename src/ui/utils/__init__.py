@@ -8,7 +8,4 @@ management, export handling, and other UI-related functionality.
 from .state_manager import StateManager
 from .export_handler import ExportHandler
 
-__all__ = [
-    'StateManager',
-    'ExportHandler'
-]
+__all__ = ["StateManager", "ExportHandler"]

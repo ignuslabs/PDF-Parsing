@@ -4,11 +4,15 @@ Provides visual overlays for parsed elements to enable interactive verification.
 """
 
 from dataclasses import dataclass
-from typing import List, Dict, Any, Tuple, Optional, Union
-import numpy as np
+from typing import List, Dict, Any, Tuple, Optional
+import logging
 from PIL import Image, ImageDraw, ImageFont
 
 from src.core.models import DocumentElement, KeyValuePair
+from src.utils.logging_config import time_it
+
+# Initialize logger for renderer
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -182,7 +186,7 @@ class CoordinateTransformer:
 class PDFRenderer:
     """Renders PDF elements with visual overlays for verification."""
 
-    def __init__(self, pdf_parser=None, config: RenderConfig = None):
+    def __init__(self, pdf_parser=None, config: Optional[RenderConfig] = None):
         """Initialize PDFRenderer.
 
         Args:
@@ -236,12 +240,13 @@ class PDFRenderer:
 
         return self.coordinate_transformer.transform_bbox(bbox, pdf_size, page_image.size)
 
+    @time_it(logger=logger)
     def render_highlight(
         self,
         page_image: Image.Image,
         bbox: Dict[str, float],
-        color: Tuple[int, int, int, int] = None,
-        thickness: int = None,
+        color: Optional[Tuple[int, int, int, int]] = None,
+        thickness: Optional[int] = None,
         pdf_size: Optional[Tuple[float, float]] = None,
     ) -> Image.Image:
         """Render a single highlight rectangle on image.
@@ -285,12 +290,13 @@ class PDFRenderer:
 
         return result_image.convert("RGB")
 
+    @time_it(logger=logger)
     def render_multiple_highlights(
         self,
         page_image: Image.Image,
         bboxes: List[Dict[str, float]],
         colors: Optional[List[Tuple[int, int, int, int]]] = None,
-        thickness: int = None,
+        thickness: Optional[int] = None,
         pdf_size: Optional[Tuple[float, float]] = None,
     ) -> Image.Image:
         """Render multiple highlight rectangles on image.
@@ -381,7 +387,7 @@ class PDFRenderer:
 
     def _render_element_overlay(
         self,
-        draw: ImageDraw.Draw,
+        draw: Any,
         element: DocumentElement,
         image_size: Tuple[int, int],
         pdf_size: Optional[Tuple[float, float]] = None,
@@ -443,7 +449,7 @@ class PDFRenderer:
         }
 
     def _draw_element_label(
-        self, draw: ImageDraw.Draw, element: DocumentElement, bbox: Tuple[int, int, int, int]
+        self, draw: Any, element: DocumentElement, bbox: Tuple[int, int, int, int]
     ):
         """Draw element type and confidence label.
 

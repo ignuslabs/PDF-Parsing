@@ -16,7 +16,7 @@ if str(src_path) not in sys.path:
 
 # Standard library imports
 import streamlit as st
-from typing import List, Optional, Dict
+from typing import List, Optional
 from PIL import Image
 
 try:

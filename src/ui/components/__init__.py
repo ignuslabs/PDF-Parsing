@@ -9,8 +9,4 @@ from .upload_handler import PDFUploadHandler
 from .config_panel import ParserConfigPanel
 from .results_display import ResultsDisplay
 
-__all__ = [
-    'PDFUploadHandler',
-    'ParserConfigPanel', 
-    'ResultsDisplay'
-]
+__all__ = ["PDFUploadHandler", "ParserConfigPanel", "ResultsDisplay"]
