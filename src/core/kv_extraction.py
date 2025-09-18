@@ -54,6 +54,10 @@ class KVConfig:
     geom_weight: float = 0.3  # Weight for geometric score component
     content_weight: float = 0.2  # Weight for content score component
 
+    # Domain-specific boosts
+    label_keywords_boost: float = 0.2  # Additional boost for known label keywords
+    code_value_boost: float = 0.2      # Additional boost for code-like value patterns
+
 
 class KeyValueExtractor:
     """
@@ -248,6 +252,8 @@ class KeyValueExtractor:
             # Create combined value bbox
             value_bbox = self._combine_bboxes([ve.bbox for ve in value_elements])
 
+            tags = self._detect_tags(element.text, value_text)
+
             # Create KeyValuePair
             pair = KeyValuePair(
                 label_text=element.text,
@@ -262,8 +268,14 @@ class KeyValueExtractor:
                     "content_score": content_score,
                     "strategy": strategy,
                     "distance": self._calculate_distance(element.bbox, value_bbox),
+                    "label_element_id": element.metadata.get("element_id"),
+                    "value_element_ids": [ve.metadata.get("element_id") for ve in value_elements],
                 },
             )
+
+            if tags:
+                pair.metadata["tags"] = sorted(tags)
+                pair.metadata["tag_summary"] = ", ".join(sorted(tags))
 
             pairs.append(pair)
             successful_pairs += 1
@@ -344,49 +356,50 @@ class KeyValueExtractor:
         return touching
 
     def _cluster_columns(self, elements: List[DocumentElement]) -> List[Tuple[float, float]]:
-        """Detect column boundaries using gap detection.
+        """Detect column boundaries using conservative gap detection.
 
-        Args:
-            elements: Elements to analyze
-
-        Returns:
-            List of column boundaries as (x_min, x_max) tuples
+        For small element counts, return a single column to avoid degenerate
+        splits. Otherwise, use x-centers and the largest gap as a gutter,
+        requiring a minimum number of elements per column.
         """
         if not elements:
             return []
 
-        # Get all x-coordinates
-        x_coords = []
-        for element in elements:
-            x_coords.extend([element.bbox["x0"], element.bbox["x1"]])
+        # If too few elements, assume single column
+        if len(elements) < 8:
+            x_min = min(e.bbox["x0"] for e in elements)
+            x_max = max(e.bbox["x1"] for e in elements)
+            return [(x_min, x_max)]
 
-        x_coords = sorted(set(x_coords))
-
-        if len(x_coords) < 4:  # Need at least 2 elements for columns
-            return [(min(x_coords), max(x_coords))]
-
-        # Find gaps larger than gutter threshold
-        gaps = []
-        for i in range(len(x_coords) - 1):
-            gap = x_coords[i + 1] - x_coords[i]
-            if gap >= self.cfg.gutter_min_dx:
-                gaps.append((x_coords[i], x_coords[i + 1]))
-
+        centers = sorted(((e.bbox["x0"] + e.bbox["x1"]) / 2.0) for e in elements)
+        gaps = [(centers[i + 1] - centers[i], i) for i in range(len(centers) - 1)]
         if not gaps:
-            # No significant gaps found - single column
-            return [(min(x_coords), max(x_coords))]
+            x_min = min(e.bbox["x0"] for e in elements)
+            x_max = max(e.bbox["x1"] for e in elements)
+            return [(x_min, x_max)]
 
-        # Create column boundaries
-        columns = []
-        start = min(x_coords)
+        max_gap, idx = max(gaps, key=lambda t: t[0])
+        if max_gap < self.cfg.gutter_min_dx:
+            x_min = min(e.bbox["x0"] for e in elements)
+            x_max = max(e.bbox["x1"] for e in elements)
+            return [(x_min, x_max)]
 
-        for gap_start, gap_end in gaps:
-            columns.append((start, gap_start))
-            start = gap_end
+        left_centers = centers[: idx + 1]
+        right_centers = centers[idx + 1 :]
 
-        columns.append((start, max(x_coords)))
+        MIN_ELEMS_PER_COL = 5
+        if len(left_centers) < MIN_ELEMS_PER_COL or len(right_centers) < MIN_ELEMS_PER_COL:
+            x_min = min(e.bbox["x0"] for e in elements)
+            x_max = max(e.bbox["x1"] for e in elements)
+            return [(x_min, x_max)]
 
-        return columns
+        midpoint = (centers[idx] + centers[idx + 1]) / 2.0
+        left_x_min = min(e.bbox["x0"] for e in elements if (e.bbox["x0"] + e.bbox["x1"]) / 2.0 <= midpoint)
+        left_x_max = max(e.bbox["x1"] for e in elements if (e.bbox["x0"] + e.bbox["x1"]) / 2.0 <= midpoint)
+        right_x_min = min(e.bbox["x0"] for e in elements if (e.bbox["x0"] + e.bbox["x1"]) / 2.0 > midpoint)
+        right_x_max = max(e.bbox["x1"] for e in elements if (e.bbox["x0"] + e.bbox["x1"]) / 2.0 > midpoint)
+
+        return [(left_x_min, left_x_max), (right_x_min, right_x_max)]
 
     def _build_value_index(self, elements: List[DocumentElement]) -> Dict[str, Any]:
         """Build spatial index for efficient value candidate lookup.
@@ -455,6 +468,16 @@ class KeyValueExtractor:
         word_count = len(text.split())
         if word_count <= 4:
             score += 0.1
+
+        # Feature 6: Label vocabulary boost (policy number, invoice, etc.)
+        label_keywords = [
+            "invoice", "invoice no", "invoice #", "inv", "po", "po#", "purchase order",
+            "order", "order #", "account", "account number", "acct", "policy", "policy no",
+            "claim", "claim number", "mrn", "id", "reference", "ref", "ref#", "ticket",
+        ]
+        tl = text.lower().rstrip(":")
+        if any(tl.startswith(k) or (" " + k + " ") in (" " + tl + " ") for k in label_keywords):
+            score += config.label_keywords_boost
 
         # Penalty for generic/vague text that doesn't look like a label
         generic_patterns = [
@@ -860,13 +883,16 @@ class KeyValueExtractor:
 
         score = 0.5  # Base score
 
-        # Boost for common value patterns
+        # Boost for common value patterns and code-like identifiers
         patterns = [
             r"\b\d{1,2}/\d{1,2}/\d{2,4}\b",  # Dates
-            r"\b\d{3}-\d{2}-\d{4}\b",  # SSN
-            r"\b\d{3}-\d{3}-\d{4}\b",  # Phone
-            r"\b[A-Z][a-z]+ [A-Z][a-z]+\b",  # Names
-            r"\b\d+\b",  # Numbers
+            r"\b\d{3}-\d{2}-\d{4}\b",        # SSN
+            r"\b\d{3}-\d{3}-\d{4}\b",        # Phone
+            r"\b[A-Z][a-z]+ [A-Z][a-z]+\b",    # Names
+            r"\b\d+\b",                        # Numbers
+            r"\b[A-Z0-9]{4,}[A-Z0-9_-]{2,}\b", # Generic code (mix letters/digits)
+            r"\b(?:INV|PO|POL|ORD|MRN|ID|REF)[-# ]?[A-Z0-9]{3,}\b",  # Prefixed identifiers
+            r"\b[A-Z0-9]+(?:-[A-Z0-9]+){1,3}\b",                     # Multi-segment code
         ]
 
         for pattern in patterns:
@@ -882,7 +908,83 @@ class KeyValueExtractor:
         if 2 <= len(value_text) <= 100:
             score += 0.1
 
+        # Additional boost if value strongly matches code-like patterns
+        if re.search(r"\b(?:INV|PO|POL|ORD|MRN|ID|REF)[-# ]?[A-Z0-9]{4,}\b", value_text.upper()) or \
+           re.search(r"\b[A-Z0-9]+(?:-[A-Z0-9]+){1,3}\b", value_text.upper()):
+            score += self.cfg.code_value_boost
+
         return min(score, 1.0)
+
+    def _detect_tags(self, label_text: str, value_text: str) -> set:
+        """Detect semantic tags for a key-value pair."""
+        tags = set()
+        label_lower = (label_text or "").lower()
+        value_lower = (value_text or "").lower()
+        combined = f"{label_lower} {value_lower}"
+
+        # Identifier / reference
+        identifier_keywords = [
+            "invoice", "inv", "po", "purchase order", "order", "account", "acct",
+            "policy", "claim", "mrn", "id", "identifier", "reference", "ref",
+            "ticket", "serial", "voucher", "contract", "agreement", "case",
+        ]
+        if any(keyword in label_lower for keyword in identifier_keywords):
+            tags.add("identifier")
+        identifier_pattern = re.compile(r"\b[A-Z0-9]{3,}(?:[-#][A-Z0-9]{2,})+\b")
+        if identifier_pattern.search(value_text.upper() if value_text else ""):
+            tags.add("identifier")
+
+        # Monetary values
+        monetary_pattern = re.compile(r"(?:\$|€|£|usd|eur|gbp)\s*[-+]?[0-9]+(?:,[0-9]{3})*(?:\.[0-9]{2})?", re.I)
+        if monetary_pattern.search(value_text or "") or any(
+            keyword in label_lower for keyword in [
+                "amount", "total", "balance", "price", "cost", "subtotal", "tax", "fee"
+            ]
+        ) and re.search(r"[-+]?[0-9]+(?:,[0-9]{3})*(?:\.[0-9]{2})?", value_text or ""):
+            tags.add("monetary")
+
+        # Date values
+        date_patterns = [
+            r"\b\d{4}-\d{2}-\d{2}\b",
+            r"\b\d{1,2}/\d{1,2}/\d{2,4}\b",
+            r"\b\d{1,2}-\d{1,2}-\d{2,4}\b",
+            r"\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{2,4}\b",
+        ]
+        if any(re.search(pattern, value_lower) for pattern in date_patterns) or any(
+            keyword in label_lower for keyword in ["date", "deadline", "issued", "due"]
+        ) and re.search(r"\d", value_lower):
+            tags.add("date")
+
+        # Quantity / count
+        if any(keyword in label_lower for keyword in ["quantity", "qty", "count", "units", "items"]):
+            tags.add("quantity")
+        quantity_pattern = re.compile(r"\b[0-9]+(?:\.[0-9]+)?\s*(?:pcs|units|items|boxes|packs|kg|lb|lbs|ounces|oz|g|liters|l|ml)\b", re.I)
+        if quantity_pattern.search(value_text or ""):
+            tags.add("quantity")
+
+        # Percentage
+        if "%" in value_text or re.search(r"\b[0-9]+(?:\.[0-9]+)?\s*percent\b", value_lower):
+            tags.add("percentage")
+
+        # Contact info
+        if re.search(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b", value_text or ""):
+            tags.add("email")
+        if re.search(r"\b\+?\d{1,3}[\s-]?\(?\d{2,3}\)?[\s-]?\d{3}[\s-]?\d{4}\b", value_text or ""):
+            tags.add("phone")
+
+        # Financial specific keywords
+        if any(keyword in label_lower for keyword in ["balance", "due", "credit", "debit", "payment"]):
+            tags.add("financial")
+
+        # Address cues
+        if any(keyword in label_lower for keyword in ["address", "city", "state", "country", "zipcode", "postal"]):
+            tags.add("address")
+
+        # Notes / description
+        if any(keyword in label_lower for keyword in ["description", "notes", "comments", "details"]):
+            tags.add("description")
+
+        return tags
 
     def _calculate_confidence(
         self, label_score: float, geom_score: float, content_score: float

@@ -100,7 +100,7 @@ maintenance/updates
 Learn the essential workflow in this hands-on tutorial:
 - ✅ Set up the application quickly
 - ✅ Parse your first PDF document
-- ✅ Search and verify content
+- ✅ Search and verify content in a unified workspace
 - ✅ Export results in multiple formats
 - ✅ Understand core concepts and best practices
 
@@ -191,20 +191,17 @@ Smart PDF Parser follows this core workflow:
 
 ```text
 graph LR
-    A[📄 Parse] --> B[🔍 Search]
-    B --> C[✅ Verify]
-    C --> D[📊 Export]
+    A[📄 Parse] --> B[🔍 Search & ✅ Verify]
+    B --> C[📊 Export]
     
     A1[Extract Elements] --> A
-    B1[Find Content] --> B
-    C1[Validate Accuracy] --> C
-    D1[Multiple Formats] --> D
+    B1[Find & Validate Content] --> B
+    C1[Multiple Formats] --> C
 ```
 
 1. **📄 Parse** - Extract elements and key-value pairs from PDFs using Docling
-2. **🔍 Search** - Find content with exact, fuzzy, or semantic search
-3. **✅ Verify** - Validate extraction accuracy with visual verification and KV highlighting
-4. **📊 Export** - Output results in JSON, CSV, Markdown, or HTML
+2. **🔍 Search & ✅ Verify** - Find content (exact, fuzzy, semantic), filter by tags, and validate directly in the unified workspace
+3. **📊 Export** - Output results in JSON, CSV, Markdown, or HTML
 
 ---
 
@@ -239,16 +236,12 @@ graph LR
 - **Key-Value Extraction** for forms, applications, and structured documents
 - Confidence scoring and quality assessment
 
-### 🔍 **Advanced Search Capabilities** 
-- Exact, fuzzy, and semantic search modes
-- Element type and page filtering
-- Context-aware result ranking
-
-### ✅ **Interactive Verification System**
+### 🔍✅ **Unified Search & Verification** 
+- Exact, fuzzy, and semantic search modes with field/tag filters (IDs, monetary values, dates)
+- Context-aware result ranking and quick navigation to page overlays
 - Visual document overlay for accuracy checking
 - **Key-Value Pair Visualization** with color-coded highlighting
-- Correction workflow with state tracking
-- Quality metrics and progress monitoring
+- Correction workflow with state tracking and quality metrics
 
 ### 📊 **Flexible Export Options**
 - JSON for data processing

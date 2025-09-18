@@ -105,6 +105,7 @@ venv.bak/
 # mkdocs documentation
 /site
 
+
 # mypy
 .mypy_cache/
 .dmypy.json
@@ -133,6 +134,12 @@ Thumbs.db
 # Docling model cache
 models_cache/
 .docling_cache/
+.claude
+_templates
+_static
+.github
+pdf_testing/
+
 
 # Streamlit
 .streamlit/secrets.toml

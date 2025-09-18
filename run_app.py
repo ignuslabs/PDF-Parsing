@@ -36,13 +36,17 @@ def main():
         print(f"Current directory: {current_dir}")
         print("Expected structure: src/ui/app.py")
         return 1
-    os.environ["TESSDATA_PREFIX"] = "/opt/homebrew/share/tessdata"
+    # Configure Tesseract data path if it exists (macOS Homebrew default)
+    mac_tessdata = Path("/opt/homebrew/share/tessdata")
+    if mac_tessdata.exists():
+        os.environ["TESSDATA_PREFIX"] = str(mac_tessdata)
     # Check requirements
     if not check_requirements():
         return 1
     
     # Set up environment
-    os.environ['STREAMLIT_SERVER_HEADLESS'] = 'true'
+    # Allow override via env; default to headless in CLI contexts
+    os.environ.setdefault('STREAMLIT_SERVER_HEADLESS', 'true')
     os.environ['STREAMLIT_SERVER_PORT'] = '8501'
     os.environ['STREAMLIT_SERVER_ADDRESS'] = 'localhost'
     
@@ -80,7 +84,7 @@ def main():
             "src/ui/app.py",
             "--server.port=8501",
             "--server.address=localhost",
-            "--server.headless=false",
+            # Headless controlled via env, avoid conflicting CLI flag
             "--browser.gatherUsageStats=false",
             "--theme.primaryColor=#667eea",
             "--theme.backgroundColor=#ffffff",

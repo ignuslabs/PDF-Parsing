@@ -311,6 +311,10 @@ class ParserConfigPanel:
                 "ocr_language": "eng",
                 "table_mode": "accurate",
                 "image_scale": 1.0,
+                "enable_kv_extraction": True,
+                "header_classifier_enabled": True,
+                "enable_form_fields": True,
+                "export_raw_snapshot": False,
             }
 
         config = st.session_state[session_state_key]
@@ -323,6 +327,45 @@ class ParserConfigPanel:
 
         # Display advanced settings
         config = self.display_advanced_settings(config)
+
+        # Smart extraction controls
+        with st.expander("🧠 Smart Extraction", expanded=True):
+            col1, col2, col3, col4 = st.columns(4)
+
+            with col1:
+                config["enable_kv_extraction"] = st.checkbox(
+                    "Key-Value Extraction",
+                    value=config.get("enable_kv_extraction", True),
+                    help="Capture structured field/value pairs such as IDs, invoice numbers, totals",
+                )
+
+            with col2:
+                config["header_classifier_enabled"] = st.checkbox(
+                    "Safer Header Classifier",
+                    value=config.get("header_classifier_enabled", True),
+                    help="Reduce false headings by treating code-like values as fields",
+                )
+
+            with col3:
+                config["enable_form_fields"] = st.checkbox(
+                    "Form Field Extraction",
+                    value=config.get("enable_form_fields", True),
+                    help="Capture interactive form values embedded in PDFs (AcroForm)",
+                )
+
+            with col4:
+                config["export_raw_snapshot"] = st.checkbox(
+                    "Export Raw Snapshot",
+                    value=config.get("export_raw_snapshot", False),
+                    help="Save raw extraction JSON to pdf_testing for inspection",
+                )
+
+            if config.get("enable_kv_extraction", False):
+                st.caption(
+                    "Key-Value extraction is optimized for invoices, forms, and documents with reference codes."
+                )
+
+        # Performance indicators
 
         # Performance indicators
         self.display_performance_indicators(config)

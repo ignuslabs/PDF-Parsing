@@ -105,6 +105,18 @@ class KeyValuePair:
         if not isinstance(self.metadata, dict):
             raise ValueError("metadata must be a dictionary")
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert the key-value pair to a serializable dictionary."""
+        return {
+            "label_text": self.label_text,
+            "value_text": self.value_text,
+            "page_number": self.page_number,
+            "label_bbox": self.label_bbox,
+            "value_bbox": self.value_bbox,
+            "confidence": self.confidence,
+            "metadata": self.metadata,
+        }
+
     def _validate_bbox(self, bbox: Dict[str, float], bbox_name: str) -> None:
         """Validate a bounding box dictionary.
 
@@ -182,6 +194,7 @@ class ParsedDocument:
     elements: List[DocumentElement]
     metadata: Dict[str, Any]
     pages: Optional[Dict[int, Any]] = None  # Page-specific data
+    key_values: Optional[List[KeyValuePair]] = None  # Optional docling-provided KV pairs
 
     def __post_init__(self) -> None:
         """Validate the parsed document after initialization."""
@@ -190,6 +203,11 @@ class ParsedDocument:
 
         if not isinstance(self.metadata, dict):
             raise ValueError("Metadata must be a dictionary")
+
+        if self.key_values is None:
+            self.key_values = []
+        else:
+            self.key_values = list(self.key_values)
 
         # Ensure metadata has required fields
         if "source_path" not in self.metadata:
@@ -222,6 +240,7 @@ class ParsedDocument:
                 for element in self.elements
             ],
             "pages": self.pages,
+            "key_values": [kv.to_dict() for kv in (self.key_values or [])],
             "export_info": {
                 "format": "dict",
                 "exported_at": datetime.now().isoformat(),

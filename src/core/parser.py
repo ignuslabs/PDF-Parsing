@@ -2,6 +2,7 @@
 Core PDF parser implementation using Docling.
 """
 
+import copy
 import logging
 import re
 from pathlib import Path
@@ -10,6 +11,7 @@ from datetime import datetime
 
 # Import progress tracking utilities
 from src.utils.logging_config import ProgressTracker, time_it, log_memory_usage
+from src.utils.profiling import profile_function, profile_context
 
 # Setup logging first
 logger = logging.getLogger(__name__)
@@ -40,6 +42,14 @@ from docling.datamodel.pipeline_options import (
 )
 from docling.datamodel.base_models import InputFormat
 
+from src.utils.docling_compat import (
+    build_converter as dl_build_converter,
+    create_ocr_options as dl_create_ocr_options,
+    normalize_table_mode as dl_normalize_table_mode,
+    iter_page_images as dl_iter_page_images,
+    get_document_collections as dl_get_document_collections,
+)
+
 from src.core.models import DocumentElement, ParsedDocument, KeyValuePair
 from src.utils.exceptions import DocumentParsingError, OCRError
 from src.core.classifiers.header_classifier import is_heading
@@ -63,6 +73,7 @@ class DoclingParser:
         kv_config: Optional[KVConfig] = None,
         header_classifier_enabled: bool = False,
         enable_form_fields: bool = True,
+        enable_profiling: bool = False,
     ):
         """Initialize the Docling parser with configuration options.
 
@@ -79,6 +90,7 @@ class DoclingParser:
             kv_config: Configuration for KV extraction (uses defaults if None)
             header_classifier_enabled: Enable header/heading classification
             enable_form_fields: Enable PDF form field extraction using PyPDF2
+            enable_profiling: Enable profiling for performance analysis
         """
         self.enable_ocr = enable_ocr
         self.enable_tables = enable_tables
@@ -92,6 +104,7 @@ class DoclingParser:
         self.kv_config = kv_config
         self.header_classifier_enabled = header_classifier_enabled
         self.enable_form_fields = enable_form_fields
+        self.enable_profiling = enable_profiling
 
         # Initialize converter (will be created lazily)
         self._converter = None
@@ -108,6 +121,19 @@ class DoclingParser:
 
         # Validate configuration
         self._validate_config()
+
+    def _get_ocr_lang_list(self) -> List[str]:
+        """Return normalized OCR language list without modifying state."""
+        if isinstance(self.ocr_lang, (list, tuple)):
+            lang_list = list(self.ocr_lang)
+        elif isinstance(self.ocr_lang, set):
+            lang_list = list(self.ocr_lang)
+        elif isinstance(self.ocr_lang, str):
+            lang_list = [self.ocr_lang]
+        else:
+            lang_list = ["eng"]
+
+        return list(dict.fromkeys(lang_list))
 
     @property
     def converter(self):
@@ -130,38 +156,29 @@ class DoclingParser:
         if self.ocr_engine not in ["tesseract", "easyocr"]:
             raise ValueError(f"Unsupported OCR engine: {self.ocr_engine}")
 
-        if self.table_mode not in ["accurate", "fast"]:
-            raise ValueError(f"Invalid table mode: {self.table_mode}")
+        # Accept either string values or TableFormerMode enum
+        if isinstance(self.table_mode, str):
+            if self.table_mode.lower() not in ["accurate", "fast"]:
+                raise ValueError(f"Invalid table mode: {self.table_mode}")
+        else:
+            # Assume valid enum or compatible type
+            pass
 
         if not 0.1 <= self.image_scale <= 5.0:
             raise ValueError(f"Image scale must be between 0.1 and 5.0, got: {self.image_scale}")
 
     def _create_converter(self) -> DocumentConverter:
         """Create and configure the Docling document converter."""
-        # Configure pipeline options
-        pipeline_options = PdfPipelineOptions()
-        pipeline_options.do_ocr = self.enable_ocr
-        pipeline_options.do_table_structure = self.enable_tables
-        pipeline_options.generate_page_images = self.generate_page_images
-
-        # Configure OCR options
-        if self.enable_ocr:
-            pipeline_options.ocr_options = self._create_ocr_options()
-
-        # Configure table options
-        if self.enable_tables and hasattr(pipeline_options, "table_structure_options"):
-            pipeline_options.table_structure_options.mode = self.table_mode
-
-        # Configure image options
-        if self.generate_page_images:
-            pipeline_options.images_scale = self.image_scale
-
-        # Create converter with PDF format options
-        converter = DocumentConverter(
-            format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)}
+        # Build via compatibility helper to handle docling API differences
+        ocr_opts = self._create_ocr_options() if self.enable_ocr else None
+        return dl_build_converter(
+            enable_ocr=self.enable_ocr,
+            ocr_options=ocr_opts,
+            enable_tables=self.enable_tables,
+            generate_page_images=self.generate_page_images,
+            table_mode=self.table_mode,
+            image_scale=self.image_scale,
         )
-
-        return converter
 
     def _create_ocr_options(self):
         """Create OCR options based on configuration."""
@@ -193,23 +210,11 @@ class DoclingParser:
             "tur": "tr",
         }
 
-        # Ensure lang is always a clean list, never a set
-        if isinstance(self.ocr_lang, (list, tuple)):
-            lang_list = list(self.ocr_lang)
-        elif isinstance(self.ocr_lang, set):
-            lang_list = list(self.ocr_lang)
-        elif isinstance(self.ocr_lang, str):
-            lang_list = [self.ocr_lang]
-        else:
-            # Fallback to English if invalid type
-            lang_list = ["eng"]
-
-        # Remove duplicates while preserving order
-        lang_list = list(dict.fromkeys(lang_list))
+        lang_list = self._get_ocr_lang_list()
 
         if self.ocr_engine == "tesseract":
             # TesseractOcrOptions uses 3-letter codes directly
-            return TesseractOcrOptions(lang=lang_list, force_full_page_ocr=True)
+            return dl_create_ocr_options("tesseract", lang_list, force_full_page_ocr=True)
         elif self.ocr_engine == "easyocr":
             # Convert 3-letter codes to 2-letter codes for EasyOCR
             easyocr_langs = []
@@ -224,11 +229,360 @@ class DoclingParser:
                     logger.warning(f"Unknown language code '{lang}', falling back to English")
                     easyocr_langs.append("en")
 
-            return EasyOcrOptions(lang=easyocr_langs or ["en"])  # Ensure at least English if empty
+            return dl_create_ocr_options("easyocr", easyocr_langs or ["en"])  # Ensure at least English if empty
         else:
             raise ValueError(f"Unsupported OCR engine: {self.ocr_engine}")
 
-    @time_it
+    @staticmethod
+    def _extract_text_from_doc_item(item: Any) -> Optional[str]:
+        """Best-effort text extraction from a Docling item."""
+        if item is None:
+            return None
+        if isinstance(item, str):
+            return item.strip() or None
+
+        candidate_attrs = [
+            "text",
+            "value",
+            "name",
+            "label_text",
+            "key_text",
+            "value_text",
+        ]
+        for attr in candidate_attrs:
+            if hasattr(item, attr):
+                value = getattr(item, attr)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+
+        # Some Docling items expose `.get_text()`
+        for call_attr in ("get_text",):
+            if hasattr(item, call_attr):
+                try:
+                    value = getattr(item, call_attr)()
+                    if isinstance(value, str) and value.strip():
+                        return value.strip()
+                except Exception:
+                    continue
+
+        # Fallback to str representation
+        try:
+            value = str(item).strip()
+            return value or None
+        except Exception:
+            return None
+
+    def _match_element_by_bbox(
+        self,
+        elements: List[DocumentElement],
+        page_number: Optional[int],
+        bbox: Optional[Dict[str, float]],
+    ) -> Optional[int]:
+        if not bbox:
+            return None
+        page_no = page_number or 1
+
+        x0, y0, x1, y1 = bbox.get("x0", 0), bbox.get("y0", 0), bbox.get("x1", 0), bbox.get("y1", 0)
+        if x1 <= x0 or y1 <= y0:
+            return None
+
+        for element in elements:
+            if element.page_number != page_no:
+                continue
+            eb = element.bbox
+            if eb["x1"] <= eb["x0"] or eb["y1"] <= eb["y0"]:
+                continue
+
+            # Check simple overlap
+            overlap_x = min(x1, eb["x1"]) - max(x0, eb["x0"])
+            overlap_y = min(y1, eb["y1"]) - max(y0, eb["y0"])
+            if overlap_x > 0 and overlap_y > 0:
+                return element.metadata.get("element_id")
+
+        return None
+
+    def _extract_docling_key_values(
+        self, doc_obj: Any, elements: List[DocumentElement]
+    ) -> List[KeyValuePair]:
+        """Extract key-value pairs provided by Docling when available."""
+        kv_items = getattr(doc_obj, "key_value_items", None)
+        if not kv_items:
+            return []
+
+        extracted: List[KeyValuePair] = []
+        for item in kv_items:
+            try:
+                label_obj = None
+                value_obj = None
+
+                for attr in ("key", "label", "name"):
+                    if hasattr(item, attr):
+                        label_obj = getattr(item, attr)
+                        if label_obj is not None:
+                            break
+
+                for attr in ("value", "text", "content"):
+                    if hasattr(item, attr):
+                        value_obj = getattr(item, attr)
+                        if value_obj is not None:
+                            break
+
+                label_text = None
+                for attr in (
+                    "key_text",
+                    "label_text",
+                    "name",
+                    "key",
+                ):
+                    if hasattr(item, attr):
+                        candidate = getattr(item, attr)
+                        if isinstance(candidate, str) and candidate.strip():
+                            label_text = candidate.strip()
+                            break
+                if label_text is None:
+                    label_text = self._extract_text_from_doc_item(label_obj)
+
+                value_text = None
+                for attr in ("value_text", "text", "value"):
+                    if hasattr(item, attr):
+                        candidate = getattr(item, attr)
+                        if isinstance(candidate, str) and candidate.strip():
+                            value_text = candidate.strip()
+                            break
+                if value_text is None:
+                    value_text = self._extract_text_from_doc_item(value_obj)
+
+                if not label_text or not value_text:
+                    continue
+
+                label_bbox = None
+                value_bbox = None
+
+                if label_obj is not None:
+                    label_bbox = self._extract_bbox(label_obj)
+                elif hasattr(item, "key_bbox"):
+                    try:
+                        label_bbox = self._extract_bbox(getattr(item, "key_bbox"))
+                    except Exception:
+                        label_bbox = None
+
+                if value_obj is not None:
+                    value_bbox = self._extract_bbox(value_obj)
+                elif hasattr(item, "value_bbox"):
+                    try:
+                        value_bbox = self._extract_bbox(getattr(item, "value_bbox"))
+                    except Exception:
+                        value_bbox = None
+
+                page_number = None
+                for attr in ("page_no", "page_number"):
+                    if hasattr(item, attr):
+                        try:
+                            page_number = int(getattr(item, attr))
+                            break
+                        except Exception:
+                            continue
+                if page_number is None:
+                    page_number = self._extract_page_number(label_obj or item)
+
+                label_bbox = label_bbox or {"x0": 0.0, "y0": 0.0, "x1": 0.0, "y1": 0.0}
+                value_bbox = value_bbox or label_bbox
+
+                confidence = getattr(item, "confidence", None)
+                if confidence is None:
+                    confidence = getattr(item, "score", 1.0)
+                try:
+                    confidence = float(confidence)
+                except Exception:
+                    confidence = 1.0
+
+                label_el_id = self._match_element_by_bbox(elements, page_number, label_bbox)
+                value_el_id = self._match_element_by_bbox(elements, page_number, value_bbox)
+
+                metadata: Dict[str, Any] = {
+                    "source": "docling_core",
+                    "docling_confidence": confidence,
+                }
+                if label_el_id is not None:
+                    metadata["label_element_id"] = label_el_id
+                if value_el_id is not None:
+                    metadata["value_element_ids"] = [value_el_id]
+
+                pair = KeyValuePair(
+                    label_text=label_text,
+                    value_text=value_text,
+                    page_number=page_number or 1,
+                    label_bbox=label_bbox,
+                    value_bbox=value_bbox,
+                    confidence=max(0.0, min(confidence, 1.0)),
+                    metadata=metadata,
+                )
+                extracted.append(pair)
+
+            except Exception as exc:
+                logger.debug("Could not convert docling key-value item: %s", exc)
+                continue
+
+        return extracted
+
+    def _split_inline_label_value(self, text: str) -> Tuple[Optional[str], Optional[str]]:
+        text = text.strip()
+        if not text or len(text) < 3:
+            return None, None
+
+        # Pattern 1: Label: Value
+        if ":" in text:
+            label, value = text.split(":", 1)
+            label = label.strip(" -\n\t")
+            value = value.strip()
+            if label and value:
+                return label, value
+
+        # Pattern 2: Multi-line -> last line is value
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if len(lines) >= 2:
+            label = " ".join(lines[:-1]).strip(" -")
+            value = lines[-1].strip()
+            if label and value:
+                return label, value
+
+        # Pattern 3: split on large whitespace gap
+        parts = [p for p in re.split(r"\s{2,}", text) if p.strip()]
+        if len(parts) >= 2:
+            label = parts[0].strip(" -")
+            value = parts[-1].strip()
+            if label and value:
+                return label, value
+
+        # Pattern 4: descriptive label + trailing token containing digits/
+        match = re.search(r"^(.*?)([A-Za-z]*\d[\w/_-]*)(?:\s*)$", text)
+        if match:
+            label = match.group(1).strip(" -")
+            value = match.group(2).strip()
+            if label and value:
+                return label, value
+
+        return None, None
+
+    def _derive_inline_key_values(self, elements: List[DocumentElement]) -> List[KeyValuePair]:
+        derived: List[KeyValuePair] = []
+        seen = set()
+
+        for element in elements:
+            if element.element_type not in {"text", "heading"}:
+                continue
+            text = (element.text or "").strip()
+            if not text or len(text) > 200:
+                continue
+
+            label, value = self._split_inline_label_value(text)
+            if not label or not value:
+                continue
+
+            key = (label, value, element.page_number)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            bbox = element.bbox
+            pair = KeyValuePair(
+                label_text=label,
+                value_text=value,
+                page_number=element.page_number,
+                label_bbox=bbox,
+                value_bbox=bbox,
+                confidence=element.confidence,
+                metadata={
+                    "source": "inline_split",
+                    "label_element_id": element.metadata.get("element_id"),
+                    "inline_original_text": text,
+                },
+            )
+            derived.append(pair)
+
+        return derived
+
+    def _build_configuration_snapshot(self) -> Dict[str, Any]:
+        """Create a dictionary describing current parser configuration."""
+        lang_list = self._get_ocr_lang_list() if self.enable_ocr else []
+        if self.enable_tables:
+            mode = self.table_mode
+            if isinstance(mode, TableFormerMode):
+                table_mode_value = mode.name.lower()
+            else:
+                table_mode_value = str(mode).lower()
+        else:
+            table_mode_value = None
+
+        snapshot: Dict[str, Any] = {
+            "ocr": {
+                "enabled": self.enable_ocr,
+                "engine": self.ocr_engine if self.enable_ocr else None,
+                "languages": lang_list,
+            },
+            "tables": {
+                "enabled": self.enable_tables,
+                "mode": table_mode_value,
+            },
+            "images": {
+                "generate": self.generate_page_images,
+                "scale": self.image_scale if self.generate_page_images else None,
+            },
+            "kv_extraction": self.enable_kv_extraction,
+            "header_classifier": self.header_classifier_enabled,
+            "form_fields": self.enable_form_fields,
+            "max_pages": self.max_pages,
+            "profiling": self.enable_profiling,
+        }
+        return snapshot
+
+    def _format_configuration_snapshot(self, snapshot: Dict[str, Any]) -> str:
+        """Create a human-readable string for the configuration snapshot."""
+        lines: List[str] = []
+
+        ocr = snapshot["ocr"]
+        if ocr["enabled"]:
+            languages = ", ".join(ocr["languages"]) if ocr["languages"] else "auto"
+            lines.append(f"  • OCR: ON (engine={ocr['engine']}, lang={languages})")
+        else:
+            lines.append("  • OCR: OFF")
+
+        tables = snapshot["tables"]
+        if tables["enabled"]:
+            lines.append(f"  • Tables: ON (mode={tables['mode']})")
+        else:
+            lines.append("  • Tables: OFF")
+
+        images = snapshot["images"]
+        if images["generate"]:
+            lines.append(f"  • Page images: ON (scale={images['scale']})")
+        else:
+            lines.append("  • Page images: OFF")
+
+        lines.append(f"  • Key-Value extraction: {'ON' if snapshot['kv_extraction'] else 'OFF'}")
+        lines.append(f"  • Safer header classifier: {'ON' if snapshot['header_classifier'] else 'OFF'}")
+        lines.append(f"  • Form field extraction: {'ON' if snapshot['form_fields'] else 'OFF'}")
+
+        if snapshot.get("max_pages"):
+            lines.append(f"  • Max pages: {snapshot['max_pages']}")
+        lines.append(f"  • Profiling: {'ON' if snapshot['profiling'] else 'OFF'}")
+
+        return "\n".join(lines)
+
+    def describe_configuration(self) -> str:
+        """Return human-readable description of current configuration."""
+        return self._format_configuration_snapshot(self._build_configuration_snapshot())
+
+    def configuration_snapshot(self) -> Dict[str, Any]:
+        """Return a copy of the current configuration snapshot."""
+        return copy.deepcopy(self._build_configuration_snapshot())
+
+    def _log_configuration(self) -> Dict[str, Any]:
+        """Log configuration summary and return snapshot for progress tracking."""
+        snapshot = self._build_configuration_snapshot()
+        logger.info("Parser configuration:\n%s", self._format_configuration_snapshot(snapshot))
+        return snapshot
+
     def parse_document(self, pdf_path: Path) -> List[DocumentElement]:
         """Parse a PDF document and return extracted elements.
 
@@ -243,6 +597,19 @@ class DoclingParser:
             ValueError: If the file is not a valid PDF
             DocumentParsingError: If parsing fails
         """
+        # Apply profiling decorator if enabled
+        if self.enable_profiling:
+            return self._parse_document_profiled(pdf_path)
+        else:
+            return self._parse_document_impl(pdf_path)
+    
+    @profile_function(sort_by='cumulative', print_stats=False, memory_profile=True)
+    def _parse_document_profiled(self, pdf_path: Path) -> List[DocumentElement]:
+        """Profiled version of parse_document."""
+        return self._parse_document_impl(pdf_path)
+    
+    def _parse_document_impl(self, pdf_path: Path) -> List[DocumentElement]:
+        """Internal implementation of document parsing."""
         pdf_path = Path(pdf_path)
         
         # Create progress tracker for this parsing operation
@@ -270,24 +637,18 @@ class DoclingParser:
 
             # Step 2: Initialize parser configuration
             progress.start_step("Initializing parser configuration")
-            config_details = {
-                "OCR": self.enable_ocr,
-                "Tables": self.enable_tables, 
-                "Images": self.generate_page_images,
-                "KV Extraction": self.enable_kv_extraction,
-                "Header Classifier": self.header_classifier_enabled
-            }
-            logger.info(f"Parser configuration: {config_details}")
-            progress.complete_step(result=config_details, details="Configuration loaded")
+            config_snapshot = self._log_configuration()
+            progress.complete_step(result=config_snapshot, details="Configuration loaded")
 
             # Step 3: Convert document using Docling
             progress.start_step("Converting document with Docling")
             result = self._convert_document(pdf_path)
             
-            # Count elements in result for progress reporting
-            text_count = len(getattr(result.document, 'texts', []))
-            table_count = len(getattr(result.document, 'tables', []))
-            image_count = len(getattr(result.document, 'pictures', []))
+            # Count elements in result for progress reporting (compat-aware)
+            cols = dl_get_document_collections(result.document)
+            text_count = len(cols.get('texts', []) or [])
+            table_count = len(cols.get('tables', []) or [])
+            image_count = len(cols.get('pictures', []) or [])
             
             progress.complete_step(
                 result=f"T:{text_count}, Ta:{table_count}, I:{image_count}",
@@ -307,18 +668,15 @@ class DoclingParser:
             # Step 5: Generate page images if requested
             if self.generate_page_images:
                 progress.start_step("Generating page images")
-                if hasattr(result, "pages"):
-                    self.page_images = {}
-                    for page in result.pages:
-                        if hasattr(page, "image") and page.image and hasattr(page, "page_no"):
-                            # Convert from 0-based to 1-based page numbering
-                            page_num = page.page_no + 1
-                            self.page_images[page_num] = page.image
+                self.page_images = {}
+                try:
+                    for page_num, img in dl_iter_page_images(result):
+                        self.page_images[page_num] = img
                     progress.complete_step(
                         result=f"{len(self.page_images)} images",
                         details="Page images generated"
                     )
-                else:
+                except Exception:
                     progress.complete_step(result="No pages", details="No page data available")
             else:
                 progress.start_step("Skipping page image generation")
@@ -409,6 +767,7 @@ class DoclingParser:
             DocumentParsingError: If parsing fails
         """
         pdf_path = Path(pdf_path)
+        docling_kv_pairs: List[KeyValuePair] = []
 
         # Input validation
         if not pdf_path.exists():
@@ -429,24 +788,43 @@ class DoclingParser:
 
         try:
             logger.info(f"Starting to parse PDF: {pdf_path}")
+            logger.info("Parser configuration:\n%s", self.describe_configuration())
 
             # Convert document using Docling
             result = self._convert_document(pdf_path)
 
-            # Extract elements from the converted document
             elements = self._extract_elements(result.document, pdf_path)
+            docling_kv_pairs = self._extract_docling_key_values(result.document, elements)
+            inline_kv_pairs = self._derive_inline_key_values(elements)
+            docling_kv_pairs.extend(inline_kv_pairs)
 
             # Store page images if requested
-            if self.generate_page_images and hasattr(result, "pages"):
-                # Convert result.pages list to dict mapping page numbers to images
+            if self.generate_page_images:
                 self.page_images = {}
-                for page in result.pages:
-                    if hasattr(page, "image") and page.image and hasattr(page, "page_no"):
-                        # Convert from 0-based to 1-based page numbering
-                        page_num = page.page_no + 1
-                        self.page_images[page_num] = page.image
+                try:
+                    for page_num, img in dl_iter_page_images(result):
+                        self.page_images[page_num] = img
+                except Exception:
+                    pass
+
+            inline_kv_pairs = self._derive_inline_key_values(elements)
+            docling_kv_pairs.extend(inline_kv_pairs)
 
             logger.info(f"Successfully parsed PDF: {pdf_path} - {len(elements)} elements extracted")
+
+            # Derive page_count with best available signal
+            page_count: int
+            try:
+                # Prefer document.num_pages if available
+                doc_num_pages = getattr(result.document, 'num_pages', None)
+                if isinstance(doc_num_pages, int) and doc_num_pages > 0:
+                    page_count = doc_num_pages
+                elif hasattr(result, 'pages') and result.pages:
+                    page_count = len(result.pages)
+                else:
+                    page_count = len(set(e.page_number for e in elements)) if elements else 0
+            except Exception:
+                page_count = len(set(e.page_number for e in elements)) if elements else 0
 
             # Create ParsedDocument
             document = ParsedDocument(
@@ -466,9 +844,10 @@ class DoclingParser:
                         "header_classifier_enabled": self.header_classifier_enabled,
                     },
                     "total_elements": len(elements),
-                    "page_count": len(set(e.page_number for e in elements)) if elements else 0,
+                    "page_count": page_count,
                 },
                 pages=self.page_images if self.page_images else None,
+                key_values=docling_kv_pairs,
             )
 
             return document
@@ -481,6 +860,8 @@ class DoclingParser:
                 # Retry without OCR
                 logger.info(f"Retrying {pdf_path} without OCR")
                 elements = self._parse_without_ocr(pdf_path)
+                inline_kv_pairs = self._derive_inline_key_values(elements)
+                docling_kv_pairs.extend(inline_kv_pairs)
                 return ParsedDocument(
                     elements=elements,
                     metadata={
@@ -500,13 +881,16 @@ class DoclingParser:
                         "page_count": len(set(e.page_number for e in elements)) if elements else 0,
                     },
                     pages=None,
+                    key_values=docling_kv_pairs,
                 )
             else:
                 raise DocumentParsingError(f"OCR processing failed: {e}", str(pdf_path))
         except MemoryError as e:
             logger.error(f"Insufficient memory for {pdf_path}: {e}")
             # Try with reduced settings
-            elements = self._parse_with_reduced_settings(pdf_path)
+                elements = self._parse_with_reduced_settings(pdf_path)
+            inline_kv_pairs = self._derive_inline_key_values(elements)
+            docling_kv_pairs.extend(inline_kv_pairs)
             return ParsedDocument(
                 elements=elements,
                 metadata={
@@ -636,24 +1020,24 @@ class DoclingParser:
         elements = []
         element_id = 0
 
-        # Step 1: Extract text elements
+        # Step 1: Extract text elements (compat-aware collections)
         progress.start_step("Extracting text elements")
         text_count = 0
-        if hasattr(document, "texts"):
-            for text_item in document.texts:
-                element = self._create_element_from_text(text_item, element_id, document)
-                if element:
-                    elements.append(element)
-                    element_id += 1
-                    text_count += 1
+        collections = dl_get_document_collections(document)
+        for text_item in collections.get("texts", []) or []:
+            element = self._create_element_from_text(text_item, element_id, document)
+            if element:
+                elements.append(element)
+                element_id += 1
+                text_count += 1
         progress.complete_step(text_count, f"Found {text_count} text elements")
         log_memory_usage(logger, "text element extraction")
 
         # Step 2: Extract table elements
         progress.start_step("Extracting table elements")
         table_count = 0
-        if hasattr(document, "tables") and self.enable_tables:
-            for table_item in document.tables:
+        if self.enable_tables:
+            for table_item in collections.get("tables", []) or []:
                 element = self._create_element_from_table(table_item, element_id, document)
                 if element:
                     elements.append(element)
@@ -666,13 +1050,12 @@ class DoclingParser:
         # Step 3: Extract picture elements
         progress.start_step("Extracting picture elements")
         picture_count = 0
-        if hasattr(document, "pictures"):
-            for picture_item in document.pictures:
-                element = self._create_element_from_picture(picture_item, element_id, document)
-                if element:
-                    elements.append(element)
-                    element_id += 1
-                    picture_count += 1
+        for picture_item in collections.get("pictures", []) or []:
+            element = self._create_element_from_picture(picture_item, element_id, document)
+            if element:
+                elements.append(element)
+                element_id += 1
+                picture_count += 1
         progress.complete_step(picture_count, f"Found {picture_count} picture elements")
 
         # Step 4: Extract form field elements (conditional step)

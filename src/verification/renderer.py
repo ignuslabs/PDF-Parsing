@@ -9,6 +9,7 @@ import logging
 from PIL import Image, ImageDraw, ImageFont
 
 from src.core.models import DocumentElement, KeyValuePair
+from src.core.classifiers.header_classifier import is_code_like
 from src.utils.logging_config import time_it
 
 # Initialize logger for renderer
@@ -544,11 +545,9 @@ class PDFRenderer:
         self,
         page_image: Image.Image,
         kv: KeyValuePair,
-        colors: Tuple[Tuple[int, int, int, int], Tuple[int, int, int, int]] = (
-            (255, 0, 0, 128),
-            (0, 128, 0, 128),
-        ),
+        colors: Optional[Tuple[Tuple[int, int, int, int], Tuple[int, int, int, int]]] = None,
         pdf_size: Optional[Tuple[float, float]] = None,
+        highlight_codes: bool = True,
     ) -> Image.Image:
         """Render a single key-value pair with connection line.
 
@@ -565,7 +564,13 @@ class PDFRenderer:
         overlay = Image.new("RGBA", result_image.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
 
-        label_color, value_color = colors
+        default_colors = ((255, 0, 0, 128), (0, 128, 0, 128))
+        label_color, value_color = colors if colors is not None else default_colors
+
+        is_code = bool(highlight_codes and getattr(kv, "value_text", "") and is_code_like(kv.value_text))
+        if is_code:
+            label_color = (110, 38, 204, 190)
+            value_color = (0, 186, 255, 200)
 
         # Transform coordinates to pixel space
         if pdf_size:
@@ -600,6 +605,12 @@ class PDFRenderer:
         value_coords = (value_bbox["x0"], value_bbox["y0"], value_bbox["x1"], value_bbox["y1"])
         draw.rectangle(value_coords, fill=value_color, outline=value_color[:3], width=2)
 
+        if is_code:
+            font = self._get_font(self.config.font_size)
+            badge_text = "🆔 Code"
+            badge_pos = (value_bbox["x0"], max(value_bbox["y0"] - (self.config.font_size + 4), 0))
+            self._draw_text_with_background(draw, badge_text, badge_pos, font, (0, 0, 0, 180))
+
         # Draw connection line between label and value
         self._draw_connection_line(
             draw, label_coords, value_coords, color=(100, 100, 100, 180), width=2
@@ -624,6 +635,7 @@ class PDFRenderer:
         kvs: List[KeyValuePair],
         palette: Optional[List[Tuple[Tuple[int, int, int, int], Tuple[int, int, int, int]]]] = None,
         pdf_size: Optional[Tuple[float, float]] = None,
+        highlight_codes: bool = True,
     ) -> Image.Image:
         """Render multiple key-value pairs on a page image.
 
@@ -655,7 +667,11 @@ class PDFRenderer:
         for i, kv in enumerate(kvs):
             color_pair = palette[i % len(palette)]
             result_image = self.render_kv_pair(
-                result_image, kv, colors=color_pair, pdf_size=pdf_size
+                result_image,
+                kv,
+                colors=color_pair,
+                pdf_size=pdf_size,
+                highlight_codes=highlight_codes,
             )
 
         return result_image

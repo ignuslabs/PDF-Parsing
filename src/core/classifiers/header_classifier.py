@@ -167,6 +167,10 @@ def _score_negative_patterns(text: str) -> float:
     if _is_date_or_numeric(text):
         penalty += 0.5
 
+    # Code-like identifiers (e.g., INV-2025-0001, PO#12345, ABC12345)
+    if is_code_like(text):
+        penalty += 0.65  # Stronger penalty to avoid classifying codes as headings
+
     # Common form values
     if _is_common_form_value(text):
         penalty += 0.5
@@ -417,6 +421,42 @@ def _is_date_or_numeric(text: str) -> bool:
             return True
     except ValueError:
         pass
+
+    return False
+
+
+def is_code_like(text: str) -> bool:
+    """Detect code-like identifiers that are not headings.
+
+    Examples: invoice numbers, PO numbers, policy numbers, claim IDs,
+    alphanumeric with dashes/underscores, leading prefixes.
+    """
+    t = text.strip()
+    if not t:
+        return False
+
+    # Common prefixes for codes
+    prefixes = [
+        "inv", "invoice", "po", "po#", "order", "ord", "claim", "pol", "policy",
+        "acct", "account", "mrn", "id", "ref", "ref#", "ticket", "case",
+    ]
+    tl = t.lower()
+    for p in prefixes:
+        if tl.startswith(p + " ") or tl.startswith(p + ":") or tl.startswith(p + "#"):
+            return True
+
+    # Alphanumeric code patterns (6–24 chars, mostly uppercase/digits, optional dashes/underscores)
+    import re as _re
+    if _re.match(r"^[A-Z0-9][A-Z0-9_-]{4,23}$", t.replace(" ", "")):
+        return True
+
+    # Contains multiple dashes in an alphanumeric token (e.g., ABC-123-XYZ)
+    if _re.match(r"^[A-Z0-9]+(-[A-Z0-9]+){1,3}$", t.replace(" ", "")):
+        return True
+
+    # Looks like a GUID fragment (not full GUID to avoid false positives)
+    if _re.match(r"^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-", t.replace(" ", "")):
+        return True
 
     return False
 

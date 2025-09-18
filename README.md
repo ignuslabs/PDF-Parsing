@@ -11,7 +11,7 @@ Highlights
 
 - Intelligent parsing via Docling (OCR, tables, images, formulas)
 - Precise bounding boxes and page numbers for every element
-- Fast search (exact, fuzzy), verification overlay, and rich export
+- Fast search (exact, fuzzy, semantic) with in-place verification overlay and rich export
 - Test-driven design and fixtures for reliable iteration
 
 Quick Start
@@ -20,6 +20,7 @@ Quick Start
 - Install dependencies: `pip install -r requirements.txt`
 - Run the app: `python run_app.py`
 - Try a sample: open `tests/fixtures/text_simple.pdf` in the UI
+- Use the **Search & Verify** workspace to find fields (IDs, amounts, dates) and mark them reviewed
 ◊
 More details in the docs: `docs/index.md`.
 
@@ -40,7 +41,7 @@ Features
 - Docling-powered parsing with optional OCR
 - Table structure recognition (configurable accuracy vs. speed)
 - Normalized bounding boxes for robust overlays and exports
-- Streamlit UI: Parse, Search, Verify, Export
+- Streamlit UI: Parse, Search & Verify, Export
 - JSON/CSV/Markdown/HTML exports
 
 Development
@@ -73,4 +74,3 @@ Notes
 
 - Read the Docs: ensure `docs/` builds with your theme; see `.readthedocs.yaml` and `docs/conf.py`.
 - If your Read the Docs project slug differs from `pdf-parser`, update the badge and link above.
-

@@ -14,6 +14,9 @@ if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
 # Standard library imports
+import json
+import re
+from datetime import datetime
 import streamlit as st
 import tempfile
 import os
@@ -32,6 +35,8 @@ except ImportError as e:
 
 st.set_page_config(page_title="Parse Documents", page_icon="📄", layout="wide")
 
+logger = logging.getLogger(__name__)
+
 
 def initialize_session_state():
     """Initialize session state for the parse page."""
@@ -47,9 +52,10 @@ def initialize_session_state():
             "ocr_language": "eng",
             "table_mode": "accurate",
             "image_scale": 1.0,
-            "enable_kv_extraction": False,
-            "header_classifier_enabled": False,
+            "enable_kv_extraction": True,
+            "header_classifier_enabled": True,
             "enable_form_fields": True,
+            "export_raw_snapshot": False,
         }
 
 
@@ -116,21 +122,21 @@ def display_parser_configuration():
                 help="Language codes (e.g., 'eng', 'fra', 'deu' for Tesseract or 'en', 'fr', 'de' for EasyOCR). Multiple languages: 'eng+fra'. Auto-converted between engines.",
             )
 
-    with st.expander("🔬 Experimental Features"):
-        col1, col2, col3 = st.columns(3)
+    with st.expander("🧠 Smart Extraction", expanded=True):
+        col1, col2, col3, col4 = st.columns(4)
 
         with col1:
             st.session_state.parser_config["enable_kv_extraction"] = st.checkbox(
                 "Enable Key-Value Extraction",
-                value=st.session_state.parser_config.get("enable_kv_extraction", False),
-                help="Extract key-value pairs from forms and structured documents (e.g., Name: John Smith)",
+                value=st.session_state.parser_config.get("enable_kv_extraction", True),
+                help="Extract field/value pairs (invoice numbers, claim IDs, totals) using the tuned detector",
             )
 
         with col2:
             st.session_state.parser_config["header_classifier_enabled"] = st.checkbox(
                 "Use Safer Header Classifier",
-                value=st.session_state.parser_config.get("header_classifier_enabled", False),
-                help="Improved header detection that prevents form values from being misclassified as headings",
+                value=st.session_state.parser_config.get("header_classifier_enabled", True),
+                help="Prevent codes and field values from being misclassified as headings",
             )
 
         with col3:
@@ -140,19 +146,31 @@ def display_parser_configuration():
                 help="Extract values from PDF form fields (AcroForm) that may not be captured by regular text extraction",
             )
 
+        with col4:
+            st.session_state.parser_config["export_raw_snapshot"] = st.checkbox(
+                "Export Raw Snapshot",
+                value=st.session_state.parser_config.get("export_raw_snapshot", False),
+                help="Save raw extraction JSON to pdf_testing for inspection",
+            )
+
         if st.session_state.parser_config.get("enable_kv_extraction", False):
             st.info(
-                "💡 Key-Value extraction works best on forms, applications, invoices, and other structured documents with clear label-value relationships."
+                "💡 Key-Value extraction now spotlights invoice numbers, claim IDs, order codes, and other structured identifiers."
             )
 
         if st.session_state.parser_config.get("header_classifier_enabled", False):
             st.info(
-                "💡 The safer header classifier reduces false positives where personal names, dates, and form values are incorrectly identified as document headings."
+                "💡 The safer header classifier keeps verification focused on real headings versus field values."
             )
 
         if st.session_state.parser_config.get("enable_form_fields", False):
             st.info(
                 "💡 Form field extraction captures values stored in PDF form fields (AcroForm) that might not be visible through regular text extraction, such as filled-in values in government forms."
+            )
+
+        if st.session_state.parser_config.get("export_raw_snapshot", False):
+            st.info(
+                "💡 Raw snapshots are saved in the `pdf_testing` folder with timestamped filenames for auditing."
             )
 
 
@@ -206,6 +224,56 @@ def create_parser_from_config():
         header_classifier_enabled=config.get("header_classifier_enabled", False),
         enable_form_fields=config.get("enable_form_fields", True),
     )
+
+
+def _ordinal_suffix(day: int) -> str:
+    if 10 <= day % 100 <= 20:
+        return "th"
+    return {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+
+
+def export_raw_snapshot(parsed_doc: ParsedDocument, original_filename: str) -> Optional[Path]:
+    """Export parsed document data to pdf_testing as JSON."""
+    try:
+        base_dir = Path("pdf_testing")
+        base_dir.mkdir(parents=True, exist_ok=True)
+
+        now = datetime.now()
+        month_part = now.strftime("%b")
+        day = now.day
+        date_part = f"{month_part}{day}{_ordinal_suffix(day)}"
+        time_part = now.strftime("%H_%M")
+
+        stem = Path(original_filename).stem or "document"
+        safe_stem = re.sub(r"[^A-Za-z0-9_-]+", "_", stem).strip("_") or "document"
+
+        filename = f"{safe_stem}_{date_part}_{time_part}_extract.json"
+        output_path = base_dir / filename
+
+        data = parsed_doc.export_to_dict()
+
+        pages = data.get("pages")
+        if isinstance(pages, dict):
+            sanitized_pages = {}
+            for key, value in pages.items():
+                page_info: Dict[str, Any] = {
+                    "repr": str(type(value)),
+                }
+                if hasattr(value, "size"):
+                    page_info["size"] = getattr(value, "size")
+                if hasattr(value, "mode"):
+                    page_info["mode"] = getattr(value, "mode")
+                sanitized_pages[key] = page_info
+            data["pages"] = sanitized_pages
+
+        with output_path.open("w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2, ensure_ascii=False)
+
+        logger.info("Saved raw snapshot to %s", output_path)
+        return output_path
+    except Exception as exc:
+        logger.warning("Failed to save raw snapshot for %s: %s", original_filename, exc)
+        return None
 
 
 class StreamlitLogHandler(logging.Handler):
@@ -396,6 +464,8 @@ def main():
                     st.error(f"Failed to create parser: {str(e)}")
                     return
 
+                logger.info("Using parser configuration from UI:\n%s", parser.describe_configuration())
+
                 # Progress tracking containers
                 progress_bar = st.progress(0, text="Initializing...")
                 status_text = st.empty()
@@ -409,6 +479,16 @@ def main():
                 parsed_docs = []
 
                 for i, uploaded_file in enumerate(valid_files):
+                    file_size_bytes = getattr(uploaded_file, "size", None)
+                    file_size_kb = (file_size_bytes / 1024) if file_size_bytes else 0.0
+                    logger.info(
+                        "Starting parse for '%s' (%0.1f KB) [%d/%d]",
+                        uploaded_file.name,
+                        file_size_kb,
+                        i + 1,
+                        len(valid_files),
+                    )
+
                     # Update main progress bar
                     file_progress = i / len(valid_files)
                     status_text.text(f"Parsing {uploaded_file.name} ({i+1}/{len(valid_files)})")
@@ -422,6 +502,10 @@ def main():
                     file_log_container = log_container.container()
 
                     # Save uploaded file temporarily
+                    try:
+                        uploaded_file.seek(0)
+                    except Exception:
+                        pass
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
                         tmp_file.write(uploaded_file.read())
                         tmp_path = Path(tmp_file.name)
@@ -433,12 +517,23 @@ def main():
                         parsing_time = time.time() - start_time
 
                         if parsed_doc:
+                            parsed_doc.metadata["original_source_path"] = parsed_doc.metadata.get("source_path")
+                            parsed_doc.metadata["source_path"] = uploaded_file.name
+                            parsed_doc.metadata["filename"] = uploaded_file.name
                             # Add timing info to metadata
                             parsed_doc.metadata["parsing_time_seconds"] = parsing_time
                             parsed_docs.append(parsed_doc)
 
+                            export_path = None
+                            if st.session_state.parser_config.get("export_raw_snapshot", False):
+                                export_path = export_raw_snapshot(parsed_doc, uploaded_file.name)
+
                             with file_log_container:
                                 st.success(f"🎉 Successfully parsed {uploaded_file.name} in {parsing_time:.1f}s")
+                                if export_path:
+                                    st.info(f"Raw snapshot saved to `{export_path}`")
+                                elif st.session_state.parser_config.get("export_raw_snapshot", False):
+                                    st.warning("Raw snapshot export failed; check logs for details")
                                 
                             status_text.success(
                                 f"✅ Parsed {uploaded_file.name} in {parsing_time:.1f}s"
